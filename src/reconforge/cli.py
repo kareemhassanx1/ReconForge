@@ -1,0 +1,113 @@
+"""Command-line entry point for ReconForge."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from collections.abc import Sequence
+from pathlib import Path
+
+from reconforge.csvio import CsvReadOptions, read_csv_dataset
+from reconforge.errors import ReconForgeError
+from reconforge.reconcile import ReconciliationConfig, reconcile
+from reconforge.report import result_to_dict, write_json_report
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the public CLI parser."""
+
+    parser = argparse.ArgumentParser(
+        prog="reconforge",
+        description="Compare tabular exports using stable business keys.",
+    )
+    subcommands = parser.add_subparsers(dest="command", required=True)
+
+    compare = subcommands.add_parser("compare", help="compare two CSV datasets")
+    compare.add_argument("left", type=Path, help="left-hand CSV file")
+    compare.add_argument("right", type=Path, help="right-hand CSV file")
+    compare.add_argument(
+        "--key",
+        action="append",
+        required=True,
+        dest="key_fields",
+        metavar="FIELD",
+        help="key field; repeat for a composite key",
+    )
+    compare.add_argument(
+        "--compare",
+        action="append",
+        dest="compare_fields",
+        metavar="FIELD",
+        help="field to compare; default is every shared non-key field",
+    )
+    compare.add_argument(
+        "--ignore",
+        action="append",
+        default=[],
+        dest="ignore_fields",
+        metavar="FIELD",
+        help="shared field to omit from comparison",
+    )
+    compare.add_argument(
+        "--delimiter",
+        help="one-character CSV delimiter; detected when omitted",
+    )
+    compare.add_argument(
+        "--ignore-key-case",
+        action="store_true",
+        help="match textual keys without regard to letter case",
+    )
+    compare.add_argument(
+        "--output",
+        type=Path,
+        help="write the JSON report to this path instead of stdout",
+    )
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the CLI and return a process exit status."""
+
+    parser = build_parser()
+    arguments = parser.parse_args(argv)
+
+    if arguments.command != "compare":
+        parser.error(f"unsupported command: {arguments.command}")
+
+    try:
+        options = CsvReadOptions(delimiter=arguments.delimiter)
+        left = read_csv_dataset(arguments.left, options)
+        right = read_csv_dataset(arguments.right, options)
+        config = ReconciliationConfig(
+            key_fields=tuple(arguments.key_fields),
+            compare_fields=(tuple(arguments.compare_fields) if arguments.compare_fields else None),
+            ignore_fields=tuple(arguments.ignore_fields),
+            case_sensitive_keys=not arguments.ignore_key_case,
+        )
+        result = reconcile(left, right, config)
+    except (ReconForgeError, ValueError) as exc:
+        print(f"reconforge: error: {exc}", file=sys.stderr)
+        return 2
+
+    if arguments.output:
+        destination = write_json_report(result, arguments.output)
+        print(_summary(result_to_dict(result), destination))
+    else:
+        print(json.dumps(result_to_dict(result), indent=2, ensure_ascii=False))
+
+    return 0 if result.is_clean else 1
+
+
+def _summary(report: dict[str, object], destination: Path) -> str:
+    summary = report["summary"]
+    if not isinstance(summary, dict):
+        raise TypeError("report summary must be a mapping")
+    return (
+        f"{report['status']}: {summary['matched_records']} matched record(s), "
+        f"{summary['discrepancies']} discrepancy item(s); report: {destination}"
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
