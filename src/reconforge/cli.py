@@ -10,6 +10,7 @@ from pathlib import Path
 
 from reconforge.csvio import CsvReadOptions, read_csv_dataset
 from reconforge.errors import ReconForgeError
+from reconforge.normalization import FieldNormalizer
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import result_to_dict, write_json_report
 
@@ -59,6 +60,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="match textual keys without regard to letter case",
     )
     compare.add_argument(
+        "--normalize",
+        action="append",
+        default=[],
+        metavar="FIELD=TYPE",
+        help="normalize a field as text, integer, decimal, or date; repeat as needed",
+    )
+    compare.add_argument(
         "--output",
         type=Path,
         help="write the JSON report to this path instead of stdout",
@@ -84,6 +92,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             compare_fields=(tuple(arguments.compare_fields) if arguments.compare_fields else None),
             ignore_fields=tuple(arguments.ignore_fields),
             case_sensitive_keys=not arguments.ignore_key_case,
+            field_normalizers=_parse_normalizers(arguments.normalize),
         )
         result = reconcile(left, right, config)
     except (ReconForgeError, ValueError) as exc:
@@ -97,6 +106,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(result_to_dict(result), indent=2, ensure_ascii=False))
 
     return 0 if result.is_clean else 1
+
+
+def _parse_normalizers(assignments: Sequence[str]) -> dict[str, FieldNormalizer]:
+    normalizers: dict[str, FieldNormalizer] = {}
+    for assignment in assignments:
+        if "=" not in assignment:
+            raise ValueError(f"invalid normalizer {assignment!r}; expected FIELD=TYPE")
+        field, type_name = (part.strip() for part in assignment.split("=", 1))
+        if not field or not type_name:
+            raise ValueError(f"invalid normalizer {assignment!r}; expected FIELD=TYPE")
+        if field in normalizers:
+            raise ValueError(f"normalizer for field {field!r} was specified more than once")
+        normalizers[field] = FieldNormalizer.named(type_name)
+    return normalizers
 
 
 def _summary(report: dict[str, object], destination: Path) -> str:

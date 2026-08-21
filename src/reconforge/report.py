@@ -27,6 +27,7 @@ def result_to_dict(result: ReconciliationResult) -> dict[str, Any]:
         "configuration": {
             "key_fields": list(result.key_fields),
             "compared_fields": list(result.compared_fields),
+            "field_normalizers": dict(result.field_normalizers),
         },
         "schema": {
             "fields_only_left": list(result.fields_only_left),

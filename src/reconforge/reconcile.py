@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
+from types import MappingProxyType
 
 from reconforge.errors import ConfigurationError
 from reconforge.model import (
@@ -17,16 +19,18 @@ from reconforge.model import (
     Record,
     RecordKey,
 )
+from reconforge.normalization import FieldNormalizer, normalize_dataset_fields
 
 
 @dataclass(frozen=True, slots=True)
 class ReconciliationConfig:
-    """Public settings for an exact reconciliation run."""
+    """Public settings for a reconciliation run."""
 
     key_fields: tuple[str, ...]
     compare_fields: tuple[str, ...] | None = None
     ignore_fields: tuple[str, ...] = ()
     case_sensitive_keys: bool = True
+    field_normalizers: Mapping[str, FieldNormalizer] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.key_fields:
@@ -40,6 +44,23 @@ class ReconciliationConfig:
         if overlap:
             raise ValueError(f"key fields cannot be ignored: {sorted(overlap)!r}")
 
+        normalized = dict(self.field_normalizers)
+        if any(not name for name in normalized):
+            raise ValueError("normalized field names cannot be empty")
+        invalid = [
+            name for name, value in normalized.items() if not isinstance(value, FieldNormalizer)
+        ]
+        if invalid:
+            raise TypeError(
+                f"field normalizers must be FieldNormalizer instances: {sorted(invalid)!r}"
+            )
+        ignored_normalizers = set(normalized) & set(self.ignore_fields)
+        if ignored_normalizers:
+            raise ValueError(
+                f"ignored fields cannot have normalizers: {sorted(ignored_normalizers)!r}"
+            )
+        object.__setattr__(self, "field_normalizers", MappingProxyType(normalized))
+
 
 def reconcile(
     left: Dataset,
@@ -50,8 +71,12 @@ def reconcile(
 
     _validate_required_fields(left, right, config)
     compared_fields = _select_compared_fields(left, right, config)
-    left_index = _build_index(left.records, config)
-    right_index = _build_index(right.records, config)
+    _validate_normalizer_scope(config, compared_fields)
+    normalizers = dict(config.field_normalizers)
+    left_normalized = normalize_dataset_fields(left, normalizers)
+    right_normalized = normalize_dataset_fields(right, normalizers)
+    left_index = _build_index(left.records, config, left_normalized)
+    right_index = _build_index(right.records, config, right_normalized)
 
     duplicate_left = _collect_duplicates(left_index)
     duplicate_right = _collect_duplicates(right_index)
@@ -84,7 +109,16 @@ def reconcile(
         left_record = left_index[key][0]
         right_record = right_index[key][0]
         matched_count += 1
-        differences.extend(_compare_record_pair(key, left_record, right_record, compared_fields))
+        differences.extend(
+            _compare_record_pair(
+                key,
+                left_record,
+                right_record,
+                compared_fields,
+                left_normalized,
+                right_normalized,
+            )
+        )
 
     left_headers = set(left.headers)
     right_headers = set(right.headers)
@@ -93,6 +127,9 @@ def reconcile(
     return ReconciliationResult(
         key_fields=config.key_fields,
         compared_fields=compared_fields,
+        field_normalizers=tuple(
+            (name, normalizer.kind.value) for name, normalizer in sorted(normalizers.items())
+        ),
         matched_count=matched_count,
         differences=tuple(differences),
         missing_from_left=missing_from_left,
@@ -120,6 +157,9 @@ def _validate_required_fields(
 
     for field in config.compare_fields or ():
         _require_field_on_both_sides(field, left, right, "comparison")
+
+    for field in config.field_normalizers:
+        _require_field_on_both_sides(field, left, right, "normalized")
 
 
 def _require_field_on_both_sides(
@@ -154,14 +194,30 @@ def _select_compared_fields(
     return tuple(field for field in selected if field not in excluded)
 
 
+def _validate_normalizer_scope(
+    config: ReconciliationConfig,
+    compared_fields: tuple[str, ...],
+) -> None:
+    usable = set(config.key_fields) | set(compared_fields)
+    unused = set(config.field_normalizers) - usable
+    if unused:
+        raise ConfigurationError(
+            f"normalizers apply only to key or comparison fields; unused: {sorted(unused)!r}"
+        )
+
+
 def _build_index(
     records: Iterable[Record],
     config: ReconciliationConfig,
+    normalized: dict[int, dict[str, CellValue]],
 ) -> dict[RecordKey, list[Record]]:
     index: dict[RecordKey, list[Record]] = defaultdict(list)
     for record in records:
         key = tuple(
-            _normalize_key_component(record.value(field), config.case_sensitive_keys)
+            _normalize_key_component(
+                normalized[record.row_number].get(field, record.value(field)),
+                config.case_sensitive_keys,
+            )
             for field in config.key_fields
         )
         index[key].append(record)
@@ -190,12 +246,16 @@ def _compare_record_pair(
     left: Record,
     right: Record,
     fields: tuple[str, ...],
+    left_normalized: dict[int, dict[str, CellValue]],
+    right_normalized: dict[int, dict[str, CellValue]],
 ) -> list[FieldDifference]:
     differences = []
     for field in fields:
         left_value = left.value(field)
         right_value = right.value(field)
-        if left_value != right_value:
+        comparable_left = left_normalized[left.row_number].get(field, left_value)
+        comparable_right = right_normalized[right.row_number].get(field, right_value)
+        if comparable_left != comparable_right:
             differences.append(
                 FieldDifference(
                     key=key,

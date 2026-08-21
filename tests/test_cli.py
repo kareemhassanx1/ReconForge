@@ -116,3 +116,88 @@ def test_cli_can_match_keys_without_case_sensitivity(tmp_path: Path, capsys) -> 
 
     assert status == 0
     assert json.loads(capsys.readouterr().out)["summary"]["matched_records"] == 1
+
+
+def test_cli_applies_typed_field_normalizers(tmp_path: Path, capsys) -> None:
+    left = write_file(
+        tmp_path,
+        "left.csv",
+        "id,amount,settled_on,customer\n0007,012.500,2026-08-21,CAFÉ   STORE\n",
+    )
+    right = write_file(
+        tmp_path,
+        "right.csv",
+        "id,amount,settled_on,customer\n7,12.5,2026-08-21,café store\n",
+    )
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--key",
+            "id",
+            "--normalize",
+            "id=integer",
+            "--normalize",
+            "amount=decimal",
+            "--normalize",
+            "settled_on=date",
+            "--normalize",
+            "customer=text",
+        ]
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert report["status"] == "clean"
+    assert report["configuration"]["field_normalizers"] == {
+        "amount": "decimal",
+        "customer": "text",
+        "id": "integer",
+        "settled_on": "date",
+    }
+
+
+def test_cli_returns_two_for_invalid_normalizer_syntax(tmp_path: Path, capsys) -> None:
+    left = write_file(tmp_path, "left.csv", "id,amount\nA,10\n")
+    right = write_file(tmp_path, "right.csv", "id,amount\nA,10\n")
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--key",
+            "id",
+            "--normalize",
+            "amount",
+        ]
+    )
+
+    assert status == 2
+    assert "expected FIELD=TYPE" in capsys.readouterr().err
+
+
+def test_cli_reports_normalization_source_row_field_and_value(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    left = write_file(tmp_path, "left.csv", "id,amount\nA,not-money\n")
+    right = write_file(tmp_path, "right.csv", "id,amount\nA,10\n")
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--key",
+            "id",
+            "--normalize",
+            "amount=decimal",
+        ]
+    )
+
+    error = capsys.readouterr().err
+    assert status == 2
+    assert "left.csv row 2 field 'amount' value 'not-money' as decimal" in error

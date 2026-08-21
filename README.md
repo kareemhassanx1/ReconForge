@@ -12,6 +12,7 @@ formats, and persistence can be added without coupling them to the command-line 
 
 - Read UTF-8 CSV files with an explicit delimiter or safe delimiter detection.
 - Normalize whitespace and empty values consistently at the input boundary.
+- Normalize selected columns as text, integer, decimal, or ISO date values.
 - Reconcile rows using one or more key columns.
 - Compare selected fields or all shared non-key fields.
 - Detect duplicate keys without silently selecting an arbitrary record.
@@ -50,6 +51,23 @@ Use multiple key columns by repeating `--key`:
 ```powershell
 reconforge compare left.csv right.csv --key account_id --key period
 ```
+
+Normalize source-specific representations before matching or comparing them:
+
+```powershell
+reconforge compare accounting.csv gateway.csv `
+  --key invoice_id `
+  --normalize invoice_id=integer `
+  --normalize amount=decimal `
+  --normalize settlement_date=date
+```
+
+Normalizers are assigned per column and applied to both inputs. `integer` accepts signed base-10
+integers, `decimal` accepts finite decimal numbers, and `date` accepts strict `YYYY-MM-DD` calendar
+dates. The `text` normalizer applies Unicode compatibility normalization, collapses whitespace,
+and performs Unicode-aware case folding. Null values remain null. A bad value stops the comparison
+with a deterministic message containing the source, row, field, original value, and expected type.
+The JSON report records the effective normalizer for each configured field.
 
 The command exits with status `0` when both datasets reconcile, `1` when valid inputs contain
 differences, and `2` when an input or configuration error prevents comparison.

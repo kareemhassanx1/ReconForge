@@ -37,6 +37,7 @@ def test_report_structure_contains_version_status_and_summary() -> None:
         "duplicate_keys_right": 0,
     }
     assert report["differences"][0]["field"] == "amount"
+    assert report["configuration"]["field_normalizers"] == {}
 
 
 def test_json_report_is_written_with_a_trailing_newline(tmp_path: Path) -> None:
