@@ -201,3 +201,86 @@ def test_cli_reports_normalization_source_row_field_and_value(
     error = capsys.readouterr().err
     assert status == 2
     assert "left.csv row 2 field 'amount' value 'not-money' as decimal" in error
+
+
+def test_cli_reconciles_csv_against_json_using_detected_formats(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    left = write_file(tmp_path, "left.csv", "id,amount,active\nA,10.00,true\n")
+    right = write_file(
+        tmp_path,
+        "right.json",
+        '[{"id": "A", "amount": 10, "active": true}]',
+    )
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--key",
+            "id",
+            "--normalize",
+            "amount=decimal",
+        ]
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert report["status"] == "clean"
+
+
+def test_cli_can_set_different_explicit_formats_for_each_side(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    left = write_file(tmp_path, "left.data", "id,amount\nA,10\n")
+    right = write_file(tmp_path, "right.data", '{"id": "A", "amount": 10}\n')
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--left-format",
+            "csv",
+            "--right-format",
+            "ndjson",
+            "--key",
+            "id",
+        ]
+    )
+
+    assert status == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "clean"
+
+
+def test_cli_returns_two_when_format_cannot_be_detected(tmp_path: Path, capsys) -> None:
+    left = write_file(tmp_path, "left.data", "id,amount\nA,10\n")
+    right = write_file(tmp_path, "right.csv", "id,amount\nA,10\n")
+
+    status = main(["compare", str(left), str(right), "--key", "id"])
+
+    assert status == 2
+    assert "cannot detect dataset format" in capsys.readouterr().err
+
+
+def test_cli_returns_two_for_unknown_explicit_format(tmp_path: Path, capsys) -> None:
+    left = write_file(tmp_path, "left.data", "id,amount\nA,10\n")
+    right = write_file(tmp_path, "right.data", "id,amount\nA,10\n")
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--format",
+            "xml",
+            "--key",
+            "id",
+        ]
+    )
+
+    assert status == 2
+    assert "expected one of: csv, json, ndjson" in capsys.readouterr().err

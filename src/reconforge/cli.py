@@ -8,9 +8,9 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from reconforge.csvio import CsvReadOptions, read_csv_dataset
 from reconforge.errors import ReconForgeError
 from reconforge.normalization import FieldNormalizer
+from reconforge.readers import DatasetFormat, DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import result_to_dict, write_json_report
 
@@ -24,9 +24,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subcommands = parser.add_subparsers(dest="command", required=True)
 
-    compare = subcommands.add_parser("compare", help="compare two CSV datasets")
-    compare.add_argument("left", type=Path, help="left-hand CSV file")
-    compare.add_argument("right", type=Path, help="right-hand CSV file")
+    compare = subcommands.add_parser("compare", help="compare two tabular datasets")
+    compare.add_argument("left", type=Path, help="left-hand dataset")
+    compare.add_argument("right", type=Path, help="right-hand dataset")
     compare.add_argument(
         "--key",
         action="append",
@@ -52,7 +52,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     compare.add_argument(
         "--delimiter",
-        help="one-character CSV delimiter; detected when omitted",
+        help="one-character CSV delimiter; applies to CSV inputs only",
+    )
+    compare.add_argument(
+        "--format",
+        metavar="FORMAT",
+        help="input format for both sides: csv, json, or ndjson",
+    )
+    compare.add_argument(
+        "--left-format",
+        metavar="FORMAT",
+        help="override the detected or shared format for the left input",
+    )
+    compare.add_argument(
+        "--right-format",
+        metavar="FORMAT",
+        help="override the detected or shared format for the right input",
     )
     compare.add_argument(
         "--ignore-key-case",
@@ -84,9 +99,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(f"unsupported command: {arguments.command}")
 
     try:
-        options = CsvReadOptions(delimiter=arguments.delimiter)
-        left = read_csv_dataset(arguments.left, options)
-        right = read_csv_dataset(arguments.right, options)
+        shared_format = DatasetFormat.named(arguments.format) if arguments.format else None
+        left_format = (
+            DatasetFormat.named(arguments.left_format) if arguments.left_format else shared_format
+        )
+        right_format = (
+            DatasetFormat.named(arguments.right_format) if arguments.right_format else shared_format
+        )
+        left = read_dataset(
+            arguments.left,
+            DatasetReadOptions(format=left_format, delimiter=arguments.delimiter),
+        )
+        right = read_dataset(
+            arguments.right,
+            DatasetReadOptions(format=right_format, delimiter=arguments.delimiter),
+        )
         config = ReconciliationConfig(
             key_fields=tuple(arguments.key_fields),
             compare_fields=(tuple(arguments.compare_fields) if arguments.compare_fields else None),

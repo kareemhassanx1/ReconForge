@@ -19,8 +19,8 @@ class Record:
     values: Mapping[str, CellValue]
 
     def __post_init__(self) -> None:
-        if self.row_number < 2:
-            raise ValueError("record row numbers must account for the header row")
+        if self.row_number < 1:
+            raise ValueError("record row numbers must be positive")
         object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
 
     def value(self, field: str) -> CellValue:
