@@ -203,6 +203,107 @@ def test_cli_reports_normalization_source_row_field_and_value(
     assert "left.csv row 2 field 'amount' value 'not-money' as decimal" in error
 
 
+def test_cli_applies_per_field_comparison_policies(tmp_path: Path, capsys) -> None:
+    left = write_file(
+        tmp_path,
+        "left.csv",
+        "id,amount,settled_on,customer\nA,10.000,2026-08-23,CAFÉ   STORE\n",
+    )
+    right = write_file(
+        tmp_path,
+        "right.csv",
+        "id,amount,settled_on,customer\nA,10.009,20260823,café store\n",
+    )
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--key",
+            "id",
+            "--policy",
+            "amount=decimal:0.01",
+            "--policy",
+            "settled_on=date",
+            "--policy",
+            "customer=text",
+        ]
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert report["status"] == "clean"
+    assert report["configuration"]["comparison_policies"] == {
+        "amount": "decimal:tolerance=0.01",
+        "customer": "text",
+        "settled_on": "date",
+    }
+
+
+def test_cli_decimal_policy_reports_values_outside_tolerance(tmp_path: Path, capsys) -> None:
+    left = write_file(tmp_path, "left.csv", "id,amount\nA,10.000\n")
+    right = write_file(tmp_path, "right.csv", "id,amount\nA,10.011\n")
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--key",
+            "id",
+            "--policy",
+            "amount=decimal:0.01",
+        ]
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert status == 1
+    assert report["differences"][0]["left_value"] == "10.000"
+    assert report["differences"][0]["right_value"] == "10.011"
+
+
+def test_cli_returns_two_for_invalid_policy_syntax(tmp_path: Path, capsys) -> None:
+    left = write_file(tmp_path, "left.csv", "id,amount\nA,10\n")
+    right = write_file(tmp_path, "right.csv", "id,amount\nA,10\n")
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--key",
+            "id",
+            "--policy",
+            "amount",
+        ]
+    )
+
+    assert status == 2
+    assert "expected FIELD=SPEC" in capsys.readouterr().err
+
+
+def test_cli_reports_policy_source_row_field_and_value(tmp_path: Path, capsys) -> None:
+    left = write_file(tmp_path, "left.csv", "id,amount\nA,not-money\n")
+    right = write_file(tmp_path, "right.csv", "id,amount\nA,10\n")
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--key",
+            "id",
+            "--policy",
+            "amount=decimal:0.01",
+        ]
+    )
+
+    error = capsys.readouterr().err
+    assert status == 2
+    assert "left.csv row 2 field 'amount' value 'not-money' for decimal:tolerance=0.01" in error
+
+
 def test_cli_reconciles_csv_against_json_using_detected_formats(
     tmp_path: Path,
     capsys,

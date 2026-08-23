@@ -15,6 +15,7 @@ added without coupling them to the command-line interface.
 - Detect formats from file extensions or select each input format explicitly.
 - Normalize whitespace and empty values consistently at the input boundary.
 - Normalize selected columns as text, integer, decimal, or ISO date values.
+- Apply explicit decimal-tolerance, normalized-date, or case-insensitive-text comparisons.
 - Reconcile rows using one or more key columns.
 - Compare selected fields or all shared non-key fields.
 - Detect duplicate keys without silently selecting an arbitrary record.
@@ -70,6 +71,29 @@ dates. The `text` normalizer applies Unicode compatibility normalization, collap
 and performs Unicode-aware case folding. Null values remain null. A bad value stops the comparison
 with a deterministic message containing the source, row, field, original value, and expected type.
 The JSON report records the effective normalizer for each configured field.
+
+Exact value comparison remains the default. When two systems intentionally represent a field
+differently, assign an explicit comparison policy to that column:
+
+```powershell
+reconforge compare accounting.csv gateway.csv `
+  --key invoice_id `
+  --policy amount=decimal:0.01 `
+  --policy settlement_date=date `
+  --policy customer_name=text
+```
+
+The `decimal` policy compares finite decimal values using an inclusive absolute tolerance, so a
+difference of exactly `0.01` is accepted by `decimal:0.01`. Omitting the suffix uses zero
+tolerance. Decimal arithmetic is used directly, avoiding binary floating-point rounding. The
+`date` policy normalizes valid ISO date representations before comparison, and `text` applies
+Unicode compatibility normalization, collapses whitespace, and compares with Unicode-aware case
+folding. Null only equals null for every policy.
+
+Policies are configured independently per field and run after any configured field normalizer.
+They cannot target key or ignored columns. Invalid decimal or date values stop the comparison with
+their source, row, field, value, and policy in deterministic order. The JSON report records every
+effective policy under `configuration.comparison_policies`.
 
 The command exits with status `0` when both datasets reconcile, `1` when valid inputs contain
 differences, and `2` when an input or configuration error prevents comparison.

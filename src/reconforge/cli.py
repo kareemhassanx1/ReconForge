@@ -10,6 +10,7 @@ from pathlib import Path
 
 from reconforge.errors import ReconForgeError
 from reconforge.normalization import FieldNormalizer
+from reconforge.policies import ComparisonPolicy
 from reconforge.readers import DatasetFormat, DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import result_to_dict, write_json_report
@@ -82,6 +83,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="normalize a field as text, integer, decimal, or date; repeat as needed",
     )
     compare.add_argument(
+        "--policy",
+        action="append",
+        default=[],
+        metavar="FIELD=SPEC",
+        help=("compare a field using exact, decimal[:tolerance], date, or text; repeat as needed"),
+    )
+    compare.add_argument(
         "--output",
         type=Path,
         help="write the JSON report to this path instead of stdout",
@@ -120,6 +128,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ignore_fields=tuple(arguments.ignore_fields),
             case_sensitive_keys=not arguments.ignore_key_case,
             field_normalizers=_parse_normalizers(arguments.normalize),
+            comparison_policies=_parse_policies(arguments.policy),
         )
         result = reconcile(left, right, config)
     except (ReconForgeError, ValueError) as exc:
@@ -147,6 +156,20 @@ def _parse_normalizers(assignments: Sequence[str]) -> dict[str, FieldNormalizer]
             raise ValueError(f"normalizer for field {field!r} was specified more than once")
         normalizers[field] = FieldNormalizer.named(type_name)
     return normalizers
+
+
+def _parse_policies(assignments: Sequence[str]) -> dict[str, ComparisonPolicy]:
+    policies: dict[str, ComparisonPolicy] = {}
+    for assignment in assignments:
+        if "=" not in assignment:
+            raise ValueError(f"invalid comparison policy {assignment!r}; expected FIELD=SPEC")
+        field, specification = (part.strip() for part in assignment.split("=", 1))
+        if not field or not specification:
+            raise ValueError(f"invalid comparison policy {assignment!r}; expected FIELD=SPEC")
+        if field in policies:
+            raise ValueError(f"comparison policy for field {field!r} was specified more than once")
+        policies[field] = ComparisonPolicy.named(specification)
+    return policies
 
 
 def _summary(report: dict[str, object], destination: Path) -> str:

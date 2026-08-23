@@ -82,6 +82,7 @@ class ReconciliationResult:
     key_fields: tuple[str, ...]
     compared_fields: tuple[str, ...]
     field_normalizers: tuple[tuple[str, str], ...]
+    comparison_policies: tuple[tuple[str, str], ...]
     matched_count: int
     differences: tuple[FieldDifference, ...]
     missing_from_left: tuple[MissingRecord, ...]

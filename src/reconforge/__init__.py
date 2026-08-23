@@ -3,6 +3,7 @@
 from reconforge.csvio import CsvReadOptions, read_csv_dataset
 from reconforge.model import Dataset, ReconciliationResult, Record
 from reconforge.normalization import FieldNormalizer, NormalizerKind
+from reconforge.policies import ComparisonPolicy, ComparisonPolicyKind
 from reconforge.readers import DatasetFormat, DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
 
@@ -12,6 +13,8 @@ __all__ = [
     "DatasetFormat",
     "DatasetReadOptions",
     "FieldNormalizer",
+    "ComparisonPolicy",
+    "ComparisonPolicyKind",
     "NormalizerKind",
     "Record",
     "ReconciliationConfig",

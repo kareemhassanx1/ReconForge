@@ -1,4 +1,4 @@
-"""Deterministic exact-value reconciliation for normalized datasets."""
+"""Deterministic policy-driven reconciliation for normalized datasets."""
 
 from __future__ import annotations
 
@@ -20,6 +20,11 @@ from reconforge.model import (
     RecordKey,
 )
 from reconforge.normalization import FieldNormalizer, normalize_dataset_fields
+from reconforge.policies import (
+    ComparisonPolicy,
+    PreparedValue,
+    prepare_dataset_fields,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +36,7 @@ class ReconciliationConfig:
     ignore_fields: tuple[str, ...] = ()
     case_sensitive_keys: bool = True
     field_normalizers: Mapping[str, FieldNormalizer] = dataclass_field(default_factory=dict)
+    comparison_policies: Mapping[str, ComparisonPolicy] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.key_fields:
@@ -61,6 +67,24 @@ class ReconciliationConfig:
             )
         object.__setattr__(self, "field_normalizers", MappingProxyType(normalized))
 
+        policies = dict(self.comparison_policies)
+        if any(not name for name in policies):
+            raise ValueError("comparison policy field names cannot be empty")
+        invalid_policies = [
+            name for name, value in policies.items() if not isinstance(value, ComparisonPolicy)
+        ]
+        if invalid_policies:
+            raise TypeError(
+                "comparison policies must be ComparisonPolicy instances: "
+                f"{sorted(invalid_policies)!r}"
+            )
+        ignored_policies = set(policies) & set(self.ignore_fields)
+        if ignored_policies:
+            raise ValueError(
+                f"ignored fields cannot have comparison policies: {sorted(ignored_policies)!r}"
+            )
+        object.__setattr__(self, "comparison_policies", MappingProxyType(policies))
+
 
 def reconcile(
     left: Dataset,
@@ -72,9 +96,13 @@ def reconcile(
     _validate_required_fields(left, right, config)
     compared_fields = _select_compared_fields(left, right, config)
     _validate_normalizer_scope(config, compared_fields)
+    _validate_policy_scope(config, compared_fields)
     normalizers = dict(config.field_normalizers)
+    policies = dict(config.comparison_policies)
     left_normalized = normalize_dataset_fields(left, normalizers)
     right_normalized = normalize_dataset_fields(right, normalizers)
+    left_prepared = prepare_dataset_fields(left, policies, left_normalized)
+    right_prepared = prepare_dataset_fields(right, policies, right_normalized)
     left_index = _build_index(left.records, config, left_normalized)
     right_index = _build_index(right.records, config, right_normalized)
 
@@ -117,6 +145,9 @@ def reconcile(
                 compared_fields,
                 left_normalized,
                 right_normalized,
+                policies,
+                left_prepared,
+                right_prepared,
             )
         )
 
@@ -129,6 +160,9 @@ def reconcile(
         compared_fields=compared_fields,
         field_normalizers=tuple(
             (name, normalizer.kind.value) for name, normalizer in sorted(normalizers.items())
+        ),
+        comparison_policies=tuple(
+            (name, policy.descriptor) for name, policy in sorted(policies.items())
         ),
         matched_count=matched_count,
         differences=tuple(differences),
@@ -160,6 +194,9 @@ def _validate_required_fields(
 
     for field in config.field_normalizers:
         _require_field_on_both_sides(field, left, right, "normalized")
+
+    for field in config.comparison_policies:
+        _require_field_on_both_sides(field, left, right, "comparison policy")
 
 
 def _require_field_on_both_sides(
@@ -206,6 +243,17 @@ def _validate_normalizer_scope(
         )
 
 
+def _validate_policy_scope(
+    config: ReconciliationConfig,
+    compared_fields: tuple[str, ...],
+) -> None:
+    unused = set(config.comparison_policies) - set(compared_fields)
+    if unused:
+        raise ConfigurationError(
+            f"comparison policies apply only to compared fields; unused: {sorted(unused)!r}"
+        )
+
+
 def _build_index(
     records: Iterable[Record],
     config: ReconciliationConfig,
@@ -248,6 +296,9 @@ def _compare_record_pair(
     fields: tuple[str, ...],
     left_normalized: dict[int, dict[str, CellValue]],
     right_normalized: dict[int, dict[str, CellValue]],
+    policies: Mapping[str, ComparisonPolicy],
+    left_prepared: Mapping[int, Mapping[str, PreparedValue]],
+    right_prepared: Mapping[int, Mapping[str, PreparedValue]],
 ) -> list[FieldDifference]:
     differences = []
     for field in fields:
@@ -255,7 +306,16 @@ def _compare_record_pair(
         right_value = right.value(field)
         comparable_left = left_normalized[left.row_number].get(field, left_value)
         comparable_right = right_normalized[right.row_number].get(field, right_value)
-        if comparable_left != comparable_right:
+        policy = policies.get(field)
+        values_match = (
+            comparable_left == comparable_right
+            if policy is None
+            else policy.values_match(
+                left_prepared[left.row_number][field],
+                right_prepared[right.row_number][field],
+            )
+        )
+        if not values_match:
             differences.append(
                 FieldDifference(
                     key=key,
