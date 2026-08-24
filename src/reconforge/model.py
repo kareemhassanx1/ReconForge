@@ -81,6 +81,8 @@ class ReconciliationResult:
 
     key_fields: tuple[str, ...]
     compared_fields: tuple[str, ...]
+    ignored_fields: tuple[str, ...]
+    case_sensitive_keys: bool
     field_normalizers: tuple[tuple[str, str], ...]
     comparison_policies: tuple[tuple[str, str], ...]
     matched_count: int

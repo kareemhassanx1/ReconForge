@@ -158,6 +158,8 @@ def reconcile(
     return ReconciliationResult(
         key_fields=config.key_fields,
         compared_fields=compared_fields,
+        ignored_fields=config.ignore_fields,
+        case_sensitive_keys=config.case_sensitive_keys,
         field_normalizers=tuple(
             (name, normalizer.kind.value) for name, normalizer in sorted(normalizers.items())
         ),

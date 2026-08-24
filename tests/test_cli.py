@@ -304,6 +304,277 @@ def test_cli_reports_policy_source_row_field_and_value(tmp_path: Path, capsys) -
     assert "left.csv row 2 field 'amount' value 'not-money' for decimal:tolerance=0.01" in error
 
 
+def test_cli_runs_end_to_end_from_project_config_with_mixed_formats(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    left = write_file(
+        tmp_path,
+        "accounting.data",
+        "invoice_id,amount,settled_on,customer,exported_at\n"
+        "0007,10.000,2026-08-24,CAFÉ   STORE,08:00\n",
+    )
+    right = write_file(
+        tmp_path,
+        "gateway.data",
+        json.dumps(
+            [
+                {
+                    "invoice_id": 7,
+                    "amount": 10.009,
+                    "settled_on": "20260824",
+                    "customer": "café store",
+                    "exported_at": "09:00",
+                }
+            ]
+        ),
+    )
+    config = write_file(
+        tmp_path,
+        "reconforge.json",
+        json.dumps(
+            {
+                "version": 1,
+                "inputs": {
+                    "format": "ndjson",
+                    "left_format": "csv",
+                    "right_format": "json",
+                },
+                "reconciliation": {
+                    "key_fields": ["invoice_id"],
+                    "compare_fields": ["amount", "settled_on", "customer"],
+                    "ignore_fields": ["exported_at"],
+                    "field_normalizers": {"invoice_id": "integer"},
+                    "comparison_policies": {
+                        "amount": "decimal:0.01",
+                        "settled_on": "date",
+                        "customer": "text",
+                    },
+                },
+            }
+        ),
+    )
+
+    status = main(["compare", str(left), str(right), "--config", str(config)])
+
+    report = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert report["status"] == "clean"
+    assert report["configuration"]["key_fields"] == ["invoice_id"]
+    assert report["configuration"]["comparison_policies"] == {
+        "amount": "decimal:tolerance=0.01",
+        "customer": "text",
+        "settled_on": "date",
+    }
+
+
+def test_cli_options_replace_configured_scalars_and_lists(tmp_path: Path, capsys) -> None:
+    left = write_file(
+        tmp_path,
+        "left.data",
+        "id,amount,status,note\nA,10.000,paid,old\n",
+    )
+    right = write_file(
+        tmp_path,
+        "right.data",
+        "id,amount,status,note\nA,10.009,pending,new\n",
+    )
+    config = write_file(
+        tmp_path,
+        "reconforge.json",
+        json.dumps(
+            {
+                "version": 1,
+                "inputs": {"format": "json", "delimiter": ";"},
+                "reconciliation": {
+                    "key_fields": ["missing_key"],
+                    "compare_fields": ["status"],
+                    "ignore_fields": ["amount"],
+                    "field_normalizers": {"amount": "integer"},
+                    "comparison_policies": {"amount": "exact"},
+                },
+            }
+        ),
+    )
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--config",
+            str(config),
+            "--format",
+            "csv",
+            "--delimiter",
+            ",",
+            "--key",
+            "id",
+            "--compare",
+            "amount",
+            "--ignore",
+            "note",
+            "--normalize",
+            "amount=decimal",
+            "--policy",
+            "amount=decimal:0.01",
+        ]
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert report["configuration"]["key_fields"] == ["id"]
+    assert report["configuration"]["compared_fields"] == ["amount"]
+    assert report["configuration"]["ignored_fields"] == ["note"]
+    assert report["configuration"]["field_normalizers"] == {"amount": "decimal"}
+    assert report["configuration"]["comparison_policies"] == {"amount": "decimal:tolerance=0.01"}
+
+
+def test_cli_side_format_overrides_shared_cli_and_config_formats(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    left = write_file(tmp_path, "left.data", "id,amount\nA,10\n")
+    right = write_file(tmp_path, "right.data", '{"id": "A", "amount": "10"}\n')
+    config = write_file(
+        tmp_path,
+        "reconforge.json",
+        json.dumps(
+            {
+                "version": 1,
+                "inputs": {"format": "json", "right_format": "json"},
+                "reconciliation": {"key_fields": ["id"]},
+            }
+        ),
+    )
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--config",
+            str(config),
+            "--format",
+            "csv",
+            "--right-format",
+            "ndjson",
+        ]
+    )
+
+    assert status == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "clean"
+
+
+def test_cli_field_assignments_merge_with_config_by_field(tmp_path: Path, capsys) -> None:
+    left = write_file(
+        tmp_path,
+        "left.csv",
+        "id,amount,customer\nA,10.000,CAFÉ STORE\n",
+    )
+    right = write_file(
+        tmp_path,
+        "right.csv",
+        "id,amount,customer\nA,10.009,café store\n",
+    )
+    config = write_file(
+        tmp_path,
+        "reconforge.json",
+        json.dumps(
+            {
+                "version": 1,
+                "reconciliation": {
+                    "key_fields": ["id"],
+                    "comparison_policies": {"customer": "text"},
+                },
+            }
+        ),
+    )
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--config",
+            str(config),
+            "--policy",
+            "amount=decimal:0.01",
+        ]
+    )
+
+    report = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert report["configuration"]["comparison_policies"] == {
+        "amount": "decimal:tolerance=0.01",
+        "customer": "text",
+    }
+
+
+def test_cli_case_flag_overrides_project_configuration(tmp_path: Path, capsys) -> None:
+    left = write_file(tmp_path, "left.csv", "id,amount\nInvoice-A,10\n")
+    right = write_file(tmp_path, "right.csv", "id,amount\ninvoice-a,10\n")
+    config = write_file(
+        tmp_path,
+        "reconforge.json",
+        json.dumps(
+            {
+                "version": 1,
+                "reconciliation": {
+                    "key_fields": ["id"],
+                    "case_sensitive_keys": False,
+                },
+            }
+        ),
+    )
+
+    configured_status = main(["compare", str(left), str(right), "--config", str(config)])
+    configured_report = json.loads(capsys.readouterr().out)
+    overridden_status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--config",
+            str(config),
+            "--case-sensitive-keys",
+        ]
+    )
+    overridden_report = json.loads(capsys.readouterr().out)
+
+    assert configured_status == 0
+    assert configured_report["summary"]["matched_records"] == 1
+    assert configured_report["configuration"]["case_sensitive_keys"] is False
+    assert overridden_status == 1
+    assert overridden_report["summary"]["matched_records"] == 0
+    assert overridden_report["configuration"]["case_sensitive_keys"] is True
+
+
+def test_cli_returns_two_for_unknown_project_config_key(tmp_path: Path, capsys) -> None:
+    left = write_file(tmp_path, "left.csv", "id,amount\nA,10\n")
+    right = write_file(tmp_path, "right.csv", "id,amount\nA,10\n")
+    config = write_file(
+        tmp_path,
+        "reconforge.json",
+        json.dumps({"version": 1, "reconciliation": {"keys": ["id"]}}),
+    )
+
+    status = main(["compare", str(left), str(right), "--config", str(config)])
+
+    assert status == 2
+    assert "unknown key(s) in reconciliation: 'keys'" in capsys.readouterr().err
+
+
+def test_cli_requires_keys_from_cli_or_project_config(tmp_path: Path, capsys) -> None:
+    left = write_file(tmp_path, "left.csv", "id,amount\nA,10\n")
+    right = write_file(tmp_path, "right.csv", "id,amount\nA,10\n")
+
+    status = main(["compare", str(left), str(right)])
+
+    assert status == 2
+    assert "provide --key or reconciliation.key_fields" in capsys.readouterr().err
+
+
 def test_cli_reconciles_csv_against_json_using_detected_formats(
     tmp_path: Path,
     capsys,

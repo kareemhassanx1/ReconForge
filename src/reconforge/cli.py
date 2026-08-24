@@ -11,6 +11,7 @@ from pathlib import Path
 from reconforge.errors import ReconForgeError
 from reconforge.normalization import FieldNormalizer
 from reconforge.policies import ComparisonPolicy
+from reconforge.project_config import ProjectConfig, load_project_config
 from reconforge.readers import DatasetFormat, DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import result_to_dict, write_json_report
@@ -29,12 +30,16 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("left", type=Path, help="left-hand dataset")
     compare.add_argument("right", type=Path, help="right-hand dataset")
     compare.add_argument(
+        "--config",
+        type=Path,
+        help="load defaults from a versioned ReconForge JSON configuration",
+    )
+    compare.add_argument(
         "--key",
         action="append",
-        required=True,
         dest="key_fields",
         metavar="FIELD",
-        help="key field; repeat for a composite key",
+        help="key field; repeat for a composite key; overrides configured key fields",
     )
     compare.add_argument(
         "--compare",
@@ -46,10 +51,9 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument(
         "--ignore",
         action="append",
-        default=[],
         dest="ignore_fields",
         metavar="FIELD",
-        help="shared field to omit from comparison",
+        help="shared field to omit; repeat as needed; overrides configured ignored fields",
     )
     compare.add_argument(
         "--delimiter",
@@ -70,24 +74,37 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FORMAT",
         help="override the detected or shared format for the right input",
     )
-    compare.add_argument(
+    key_case = compare.add_mutually_exclusive_group()
+    key_case.add_argument(
         "--ignore-key-case",
-        action="store_true",
-        help="match textual keys without regard to letter case",
+        action="store_false",
+        dest="case_sensitive_keys",
+        help="match textual keys without regard to case; overrides configuration",
     )
+    key_case.add_argument(
+        "--case-sensitive-keys",
+        action="store_true",
+        dest="case_sensitive_keys",
+        help="match textual keys with case sensitivity; overrides configuration",
+    )
+    compare.set_defaults(case_sensitive_keys=None)
     compare.add_argument(
         "--normalize",
         action="append",
-        default=[],
         metavar="FIELD=TYPE",
-        help="normalize a field as text, integer, decimal, or date; repeat as needed",
+        help=(
+            "normalize a field as text, integer, decimal, or date; "
+            "merges with configuration by field"
+        ),
     )
     compare.add_argument(
         "--policy",
         action="append",
-        default=[],
         metavar="FIELD=SPEC",
-        help=("compare a field using exact, decimal[:tolerance], date, or text; repeat as needed"),
+        help=(
+            "compare a field using exact, decimal[:tolerance], date, or text; "
+            "merges with configuration by field"
+        ),
     )
     compare.add_argument(
         "--output",
@@ -107,28 +124,62 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(f"unsupported command: {arguments.command}")
 
     try:
-        shared_format = DatasetFormat.named(arguments.format) if arguments.format else None
-        left_format = (
-            DatasetFormat.named(arguments.left_format) if arguments.left_format else shared_format
+        project = load_project_config(arguments.config) if arguments.config else ProjectConfig()
+        left_format = _effective_format(
+            arguments.left_format,
+            arguments.format,
+            project.left_format,
+            project.format,
         )
-        right_format = (
-            DatasetFormat.named(arguments.right_format) if arguments.right_format else shared_format
+        right_format = _effective_format(
+            arguments.right_format,
+            arguments.format,
+            project.right_format,
+            project.format,
+        )
+        delimiter = arguments.delimiter if arguments.delimiter is not None else project.delimiter
+        key_fields = (
+            tuple(arguments.key_fields) if arguments.key_fields is not None else project.key_fields
+        )
+        if not key_fields:
+            raise ValueError(
+                "at least one key field is required; provide --key or "
+                "reconciliation.key_fields in --config"
+            )
+        compare_fields = (
+            tuple(arguments.compare_fields)
+            if arguments.compare_fields is not None
+            else project.compare_fields
+        )
+        ignore_fields = (
+            tuple(arguments.ignore_fields)
+            if arguments.ignore_fields is not None
+            else project.ignore_fields
+        )
+        case_sensitive_keys = (
+            arguments.case_sensitive_keys
+            if arguments.case_sensitive_keys is not None
+            else project.case_sensitive_keys
+        )
+        normalizers = dict(project.field_normalizers)
+        normalizers.update(_parse_normalizers(arguments.normalize or ()))
+        policies = dict(project.comparison_policies)
+        policies.update(_parse_policies(arguments.policy or ()))
+        config = ReconciliationConfig(
+            key_fields=key_fields,
+            compare_fields=compare_fields,
+            ignore_fields=ignore_fields,
+            case_sensitive_keys=case_sensitive_keys,
+            field_normalizers=normalizers,
+            comparison_policies=policies,
         )
         left = read_dataset(
             arguments.left,
-            DatasetReadOptions(format=left_format, delimiter=arguments.delimiter),
+            DatasetReadOptions(format=left_format, delimiter=delimiter),
         )
         right = read_dataset(
             arguments.right,
-            DatasetReadOptions(format=right_format, delimiter=arguments.delimiter),
-        )
-        config = ReconciliationConfig(
-            key_fields=tuple(arguments.key_fields),
-            compare_fields=(tuple(arguments.compare_fields) if arguments.compare_fields else None),
-            ignore_fields=tuple(arguments.ignore_fields),
-            case_sensitive_keys=not arguments.ignore_key_case,
-            field_normalizers=_parse_normalizers(arguments.normalize),
-            comparison_policies=_parse_policies(arguments.policy),
+            DatasetReadOptions(format=right_format, delimiter=delimiter),
         )
         result = reconcile(left, right, config)
     except (ReconForgeError, ValueError) as exc:
@@ -142,6 +193,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(result_to_dict(result), indent=2, ensure_ascii=False))
 
     return 0 if result.is_clean else 1
+
+
+def _effective_format(
+    side_cli: str | None,
+    shared_cli: str | None,
+    side_config: DatasetFormat | None,
+    shared_config: DatasetFormat | None,
+) -> DatasetFormat | None:
+    if side_cli is not None:
+        return DatasetFormat.named(side_cli)
+    if shared_cli is not None:
+        return DatasetFormat.named(shared_cli)
+    return side_config or shared_config
 
 
 def _parse_normalizers(assignments: Sequence[str]) -> dict[str, FieldNormalizer]:

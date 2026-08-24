@@ -16,6 +16,7 @@ added without coupling them to the command-line interface.
 - Normalize whitespace and empty values consistently at the input boundary.
 - Normalize selected columns as text, integer, decimal, or ISO date values.
 - Apply explicit decimal-tolerance, normalized-date, or case-insensitive-text comparisons.
+- Load repeatable reconciliation settings from a strictly validated JSON project configuration.
 - Reconcile rows using one or more key columns.
 - Compare selected fields or all shared non-key fields.
 - Detect duplicate keys without silently selecting an arbitrary record.
@@ -94,6 +95,61 @@ Policies are configured independently per field and run after any configured fie
 They cannot target key or ignored columns. Invalid decimal or date values stop the comparison with
 their source, row, field, value, and policy in deterministic order. The JSON report records every
 effective policy under `configuration.comparison_policies`.
+
+## Project configuration
+
+Use a versioned JSON file when the same reconciliation needs to be run repeatedly. Input paths
+remain command arguments, while formats and reconciliation behavior live in the project file:
+
+```json
+{
+  "version": 1,
+  "inputs": {
+    "left_format": "csv",
+    "right_format": "json"
+  },
+  "reconciliation": {
+    "key_fields": ["invoice_id"],
+    "compare_fields": ["amount", "settled_on", "customer_name"],
+    "ignore_fields": ["exported_at"],
+    "case_sensitive_keys": true,
+    "field_normalizers": {
+      "invoice_id": "integer"
+    },
+    "comparison_policies": {
+      "amount": "decimal:0.01",
+      "settled_on": "date",
+      "customer_name": "text"
+    }
+  }
+}
+```
+
+Run it with `--config`; `--key` is no longer required when `key_fields` is configured:
+
+```powershell
+reconforge compare accounting.export gateway.export --config reconforge.json
+```
+
+Configuration version `1` accepts only the documented keys. Unknown or duplicate JSON keys,
+unsupported versions, wrong value types, duplicate field names, and invalid formats, normalizers,
+or policies are rejected before either dataset is read. `inputs.format` sets both input formats;
+`left_format` and `right_format` can select them independently. `delimiter` is available for CSV
+inputs.
+
+Command-line options have explicit precedence:
+
+1. `--left-format` or `--right-format` overrides `--format`, which overrides the corresponding
+   configured side format, which overrides configured `inputs.format`. Extension detection is the
+   final fallback.
+2. Supplying any `--key`, `--compare`, or `--ignore` replaces the corresponding configured list.
+3. Repeated `--normalize` and `--policy` assignments merge with configured maps by field; a CLI
+   assignment replaces the configured value for that same field.
+4. `--delimiter`, `--ignore-key-case`, and `--case-sensitive-keys` override their configured
+   scalar values.
+
+The JSON report records the effective ignored fields and key-case behavior alongside normalizers
+and comparison policies, so command-line overrides remain visible during review.
 
 The command exits with status `0` when both datasets reconcile, `1` when valid inputs contain
 differences, and `2` when an input or configuration error prevents comparison.

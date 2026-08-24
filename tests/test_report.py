@@ -37,6 +37,8 @@ def test_report_structure_contains_version_status_and_summary() -> None:
         "duplicate_keys_right": 0,
     }
     assert report["differences"][0]["field"] == "amount"
+    assert report["configuration"]["ignored_fields"] == []
+    assert report["configuration"]["case_sensitive_keys"] is True
     assert report["configuration"]["field_normalizers"] == {}
     assert report["configuration"]["comparison_policies"] == {}
 
