@@ -14,10 +14,12 @@ def result_to_dict(result: ReconciliationResult) -> dict[str, Any]:
 
     return {
         "report_version": 1,
-        "status": "clean" if result.is_clean else "differences_found",
+        "status": _result_status(result),
         "summary": {
             "matched_records": result.matched_count,
             "discrepancies": result.difference_count,
+            "validation_violations": result.validation_violation_count,
+            "issues": result.issue_count,
             "field_differences": len(result.differences),
             "missing_from_left": len(result.missing_from_left),
             "missing_from_right": len(result.missing_from_right),
@@ -31,6 +33,7 @@ def result_to_dict(result: ReconciliationResult) -> dict[str, Any]:
             "case_sensitive_keys": result.case_sensitive_keys,
             "field_normalizers": dict(result.field_normalizers),
             "comparison_policies": dict(result.comparison_policies),
+            "validation_rules": {field: list(rules) for field, rules in result.validation_rules},
         },
         "schema": {
             "fields_only_left": list(result.fields_only_left),
@@ -46,6 +49,18 @@ def result_to_dict(result: ReconciliationResult) -> dict[str, Any]:
                 "right_row": item.right_row,
             }
             for item in result.differences
+        ],
+        "validation_violations": [
+            {
+                "side": item.side,
+                "source": item.source,
+                "row_number": item.row_number,
+                "field": item.field,
+                "value": item.value,
+                "rule": item.rule,
+                "message": item.message,
+            }
+            for item in result.validation_violations
         ],
         "missing_records": {
             "from_left": [
@@ -68,6 +83,18 @@ def result_to_dict(result: ReconciliationResult) -> dict[str, Any]:
             ],
         },
     }
+
+
+def _result_status(result: ReconciliationResult) -> str:
+    has_differences = result.difference_count > 0
+    has_violations = result.validation_violation_count > 0
+    if has_differences and has_violations:
+        return "differences_and_validation_violations_found"
+    if has_differences:
+        return "differences_found"
+    if has_violations:
+        return "validation_violations_found"
+    return "clean"
 
 
 def write_json_report(result: ReconciliationResult, destination: str | Path) -> Path:

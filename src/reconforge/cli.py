@@ -172,6 +172,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             case_sensitive_keys=case_sensitive_keys,
             field_normalizers=normalizers,
             comparison_policies=policies,
+            validation_rules=project.validation_rules,
         )
         left = read_dataset(
             arguments.left,
@@ -242,7 +243,9 @@ def _summary(report: dict[str, object], destination: Path) -> str:
         raise TypeError("report summary must be a mapping")
     return (
         f"{report['status']}: {summary['matched_records']} matched record(s), "
-        f"{summary['discrepancies']} discrepancy item(s); report: {destination}"
+        f"{summary['discrepancies']} reconciliation discrepancy item(s), "
+        f"{summary['validation_violations']} validation violation(s); "
+        f"report: {destination}"
     )
 
 

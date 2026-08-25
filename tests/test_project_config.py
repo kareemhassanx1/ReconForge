@@ -13,6 +13,12 @@ from reconforge.project_config import (
     load_project_config,
 )
 from reconforge.readers import DatasetFormat
+from reconforge.validation import (
+    AllowedValuesRule,
+    NumericRangeRule,
+    RequiredRule,
+    TextPatternRule,
+)
 
 
 def write_config(tmp_path: Path, payload: object, name: str = "reconforge.json") -> Path:
@@ -45,6 +51,21 @@ def test_loads_a_complete_version_one_configuration(tmp_path: Path) -> None:
                     "amount": "decimal:0.01",
                     "customer": "text",
                 },
+                "validation_rules": {
+                    "status": [
+                        {"type": "required"},
+                        {"type": "allowed", "values": ["paid", "pending"]},
+                    ],
+                    "amount": [
+                        {
+                            "type": "numeric_range",
+                            "minimum": "0",
+                            "maximum": "10000",
+                            "maximum_inclusive": False,
+                        }
+                    ],
+                    "reference": [{"type": "pattern", "pattern": "INV-[0-9]{3}"}],
+                },
             },
         },
     )
@@ -63,6 +84,11 @@ def test_loads_a_complete_version_one_configuration(tmp_path: Path) -> None:
     assert config.field_normalizers["invoice_id"].kind is NormalizerKind.INTEGER
     assert config.comparison_policies["amount"].kind is ComparisonPolicyKind.DECIMAL
     assert config.comparison_policies["amount"].descriptor == "decimal:tolerance=0.01"
+    assert isinstance(config.validation_rules["status"][0], RequiredRule)
+    assert isinstance(config.validation_rules["status"][1], AllowedValuesRule)
+    assert isinstance(config.validation_rules["amount"][0], NumericRangeRule)
+    assert config.validation_rules["amount"][0].descriptor == "numeric_range:[0,10000)"
+    assert isinstance(config.validation_rules["reference"][0], TextPatternRule)
 
 
 def test_minimal_configuration_uses_safe_defaults(tmp_path: Path) -> None:
@@ -74,6 +100,7 @@ def test_minimal_configuration_uses_safe_defaults(tmp_path: Path) -> None:
     assert config.case_sensitive_keys
     assert dict(config.field_normalizers) == {}
     assert dict(config.comparison_policies) == {}
+    assert dict(config.validation_rules) == {}
 
 
 def test_loaded_policy_mappings_are_immutable(tmp_path: Path) -> None:
@@ -264,4 +291,87 @@ def test_configuration_must_be_utf8(tmp_path: Path) -> None:
     path.write_bytes(b'{"version": 1, "note": "\xff"}')
 
     with pytest.raises(ProjectConfigError, match="project configuration is not valid UTF-8"):
+        load_project_config(path)
+
+
+@pytest.mark.parametrize(
+    ("validation_rules", "message"),
+    [
+        ([], "validation_rules must be an object"),
+        ({"status": []}, "must be a non-empty array"),
+        ({"status": [{"type": "required"}, "required"]}, "must be an object"),
+        ({"status": [{}]}, "type must be a non-empty string"),
+        ({"status": [{"type": "unique"}]}, "unknown validation rule type"),
+        (
+            {"status": [{"type": "required", "message": "needed"}]},
+            "unknown key.*message",
+        ),
+        ({"status": [{"type": "allowed"}]}, "values must be an array"),
+        (
+            {"status": [{"type": "allowed", "values": []}]},
+            "requires at least one value",
+        ),
+        (
+            {"status": [{"type": "allowed", "values": ["paid", "paid"]}]},
+            "must be unique",
+        ),
+        (
+            {"amount": [{"type": "numeric_range"}]},
+            "requires a minimum or maximum",
+        ),
+        (
+            {"amount": [{"type": "numeric_range", "minimum": "10", "maximum": "0"}]},
+            "minimum cannot exceed maximum",
+        ),
+        (
+            {
+                "amount": [
+                    {
+                        "type": "numeric_range",
+                        "minimum": "0",
+                        "minimum_inclusive": "yes",
+                    }
+                ]
+            },
+            "inclusivity settings must be booleans",
+        ),
+        ({"reference": [{"type": "pattern"}]}, "pattern must be a string"),
+        (
+            {"reference": [{"type": "pattern", "pattern": "["}]},
+            "invalid text pattern",
+        ),
+    ],
+)
+def test_validation_rule_configuration_is_strictly_validated(
+    tmp_path: Path,
+    validation_rules: object,
+    message: str,
+) -> None:
+    path = write_config(
+        tmp_path,
+        {
+            "version": 1,
+            "reconciliation": {"validation_rules": validation_rules},
+        },
+    )
+
+    with pytest.raises(ProjectConfigError, match=message):
+        load_project_config(path)
+
+
+def test_validation_rule_fields_are_trimmed_and_must_be_unique(tmp_path: Path) -> None:
+    path = write_config(
+        tmp_path,
+        {
+            "version": 1,
+            "reconciliation": {
+                "validation_rules": {
+                    " status ": [{"type": "required"}],
+                    "status": [{"type": "required"}],
+                }
+            },
+        },
+    )
+
+    with pytest.raises(ProjectConfigError, match="contains duplicate field 'status'"):
         load_project_config(path)

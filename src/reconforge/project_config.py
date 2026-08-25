@@ -13,6 +13,13 @@ from reconforge.errors import ConfigurationError
 from reconforge.normalization import FieldNormalizer
 from reconforge.policies import ComparisonPolicy
 from reconforge.readers import DatasetFormat
+from reconforge.validation import (
+    AllowedValuesRule,
+    NumericRangeRule,
+    RequiredRule,
+    TextPatternRule,
+    ValidationRule,
+)
 
 PROJECT_CONFIG_VERSION = 1
 
@@ -26,6 +33,7 @@ _RECONCILIATION_KEYS = frozenset(
         "case_sensitive_keys",
         "field_normalizers",
         "comparison_policies",
+        "validation_rules",
     }
 )
 
@@ -49,6 +57,7 @@ class ProjectConfig:
     case_sensitive_keys: bool = True
     field_normalizers: Mapping[str, FieldNormalizer] = field(default_factory=dict)
     comparison_policies: Mapping[str, ComparisonPolicy] = field(default_factory=dict)
+    validation_rules: Mapping[str, tuple[ValidationRule, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.version != PROJECT_CONFIG_VERSION:
@@ -65,6 +74,11 @@ class ProjectConfig:
             self,
             "comparison_policies",
             MappingProxyType(dict(self.comparison_policies)),
+        )
+        object.__setattr__(
+            self,
+            "validation_rules",
+            MappingProxyType({name: tuple(rules) for name, rules in self.validation_rules.items()}),
         )
 
 
@@ -129,6 +143,7 @@ def load_project_config(path: str | Path) -> ProjectConfig:
         ),
         field_normalizers=_normalizer_map(reconciliation, source),
         comparison_policies=_policy_map(reconciliation, source),
+        validation_rules=_validation_rule_map(reconciliation, source),
     )
 
 
@@ -322,3 +337,107 @@ def _string_map(
             )
         assignments[field_name] = raw_specification.strip()
     return assignments
+
+
+def _validation_rule_map(
+    reconciliation: Mapping[str, object],
+    source: Path,
+) -> dict[str, tuple[ValidationRule, ...]]:
+    value = reconciliation.get("validation_rules", {})
+    if not isinstance(value, dict):
+        raise ProjectConfigError(f"{source}: reconciliation.validation_rules must be an object")
+
+    configured: dict[str, tuple[ValidationRule, ...]] = {}
+    for raw_field, raw_rules in value.items():
+        field_name = raw_field.strip()
+        if not field_name:
+            raise ProjectConfigError(
+                f"{source}: reconciliation.validation_rules field names must be non-empty"
+            )
+        if field_name in configured:
+            raise ProjectConfigError(
+                f"{source}: reconciliation.validation_rules contains duplicate field {field_name!r}"
+            )
+        if not isinstance(raw_rules, list) or not raw_rules:
+            raise ProjectConfigError(
+                f"{source}: reconciliation.validation_rules[{field_name!r}] "
+                "must be a non-empty array"
+            )
+
+        rules = tuple(
+            _parse_validation_rule(rule, source, field_name, index)
+            for index, rule in enumerate(raw_rules)
+        )
+        configured[field_name] = rules
+    return configured
+
+
+def _parse_validation_rule(
+    raw_rule: object,
+    source: Path,
+    field_name: str,
+    index: int,
+) -> ValidationRule:
+    location = f"reconciliation.validation_rules[{field_name!r}][{index}]"
+    if not isinstance(raw_rule, dict):
+        raise ProjectConfigError(f"{source}: {location} must be an object")
+    type_name = raw_rule.get("type")
+    if not isinstance(type_name, str) or not type_name.strip():
+        raise ProjectConfigError(f"{source}: {location}.type must be a non-empty string")
+    normalized_type = type_name.strip().lower()
+
+    try:
+        if normalized_type == "required":
+            _reject_unknown_keys(raw_rule, frozenset({"type"}), source, location)
+            return RequiredRule()
+        if normalized_type == "allowed":
+            _reject_unknown_keys(
+                raw_rule,
+                frozenset({"type", "values"}),
+                source,
+                location,
+            )
+            values = raw_rule.get("values")
+            if not isinstance(values, list):
+                raise ProjectConfigError(f"{source}: {location}.values must be an array")
+            return AllowedValuesRule(tuple(values))
+        if normalized_type == "numeric_range":
+            _reject_unknown_keys(
+                raw_rule,
+                frozenset(
+                    {
+                        "type",
+                        "minimum",
+                        "maximum",
+                        "minimum_inclusive",
+                        "maximum_inclusive",
+                    }
+                ),
+                source,
+                location,
+            )
+            return NumericRangeRule(
+                minimum=raw_rule.get("minimum"),
+                maximum=raw_rule.get("maximum"),
+                minimum_inclusive=raw_rule.get("minimum_inclusive", True),
+                maximum_inclusive=raw_rule.get("maximum_inclusive", True),
+            )
+        if normalized_type == "pattern":
+            _reject_unknown_keys(
+                raw_rule,
+                frozenset({"type", "pattern"}),
+                source,
+                location,
+            )
+            pattern = raw_rule.get("pattern")
+            if not isinstance(pattern, str):
+                raise ProjectConfigError(f"{source}: {location}.pattern must be a string")
+            return TextPatternRule(pattern)
+    except (TypeError, ValueError) as exc:
+        raise ProjectConfigError(f"{source}: invalid {location}: {exc}") from exc
+
+    choices = "required, allowed, numeric_range, pattern"
+    raise ProjectConfigError(
+        f"{source}: unknown validation rule type {type_name!r} at {location}; "
+        f"expected one of: {choices}"
+    )

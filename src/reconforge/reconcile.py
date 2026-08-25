@@ -25,6 +25,11 @@ from reconforge.policies import (
     PreparedValue,
     prepare_dataset_fields,
 )
+from reconforge.validation import (
+    VALIDATION_RULE_TYPES,
+    ValidationRule,
+    validate_dataset_fields,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +42,9 @@ class ReconciliationConfig:
     case_sensitive_keys: bool = True
     field_normalizers: Mapping[str, FieldNormalizer] = dataclass_field(default_factory=dict)
     comparison_policies: Mapping[str, ComparisonPolicy] = dataclass_field(default_factory=dict)
+    validation_rules: Mapping[str, tuple[ValidationRule, ...]] = dataclass_field(
+        default_factory=dict
+    )
 
     def __post_init__(self) -> None:
         if not self.key_fields:
@@ -85,6 +93,36 @@ class ReconciliationConfig:
             )
         object.__setattr__(self, "comparison_policies", MappingProxyType(policies))
 
+        validation_rules: dict[str, tuple[ValidationRule, ...]] = {}
+        for name, configured_rules in dict(self.validation_rules).items():
+            if not isinstance(name, str) or not name:
+                raise ValueError("validation rule field names cannot be empty")
+            if isinstance(configured_rules, VALIDATION_RULE_TYPES):
+                raise TypeError(
+                    f"validation rules for field {name!r} must be provided as a sequence"
+                )
+            try:
+                field_rules = tuple(configured_rules)
+            except TypeError as exc:
+                raise TypeError(
+                    f"validation rules for field {name!r} must be provided as a sequence"
+                ) from exc
+            if not field_rules:
+                raise ValueError(f"validation rules for field {name!r} cannot be empty")
+            invalid_rules = [
+                rule for rule in field_rules if not isinstance(rule, VALIDATION_RULE_TYPES)
+            ]
+            if invalid_rules:
+                raise TypeError(
+                    f"validation rules for field {name!r} contain unsupported rule instances"
+                )
+            validation_rules[name] = field_rules
+        object.__setattr__(
+            self,
+            "validation_rules",
+            MappingProxyType(validation_rules),
+        )
+
 
 def reconcile(
     left: Dataset,
@@ -99,10 +137,25 @@ def reconcile(
     _validate_policy_scope(config, compared_fields)
     normalizers = dict(config.field_normalizers)
     policies = dict(config.comparison_policies)
+    validation_rules = dict(config.validation_rules)
     left_normalized = normalize_dataset_fields(left, normalizers)
     right_normalized = normalize_dataset_fields(right, normalizers)
     left_prepared = prepare_dataset_fields(left, policies, left_normalized)
     right_prepared = prepare_dataset_fields(right, policies, right_normalized)
+    validation_violations = (
+        *validate_dataset_fields(
+            left,
+            validation_rules,
+            left_normalized,
+            side="left",
+        ),
+        *validate_dataset_fields(
+            right,
+            validation_rules,
+            right_normalized,
+            side="right",
+        ),
+    )
     left_index = _build_index(left.records, config, left_normalized)
     right_index = _build_index(right.records, config, right_normalized)
 
@@ -166,6 +219,11 @@ def reconcile(
         comparison_policies=tuple(
             (name, policy.descriptor) for name, policy in sorted(policies.items())
         ),
+        validation_rules=tuple(
+            (name, tuple(rule.descriptor for rule in rules))
+            for name, rules in sorted(validation_rules.items())
+        ),
+        validation_violations=validation_violations,
         matched_count=matched_count,
         differences=tuple(differences),
         missing_from_left=missing_from_left,
@@ -199,6 +257,9 @@ def _validate_required_fields(
 
     for field in config.comparison_policies:
         _require_field_on_both_sides(field, left, right, "comparison policy")
+
+    for field in config.validation_rules:
+        _require_field_on_both_sides(field, left, right, "validation")
 
 
 def _require_field_on_both_sides(

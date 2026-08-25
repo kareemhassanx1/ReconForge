@@ -76,6 +76,19 @@ class DuplicateKey:
 
 
 @dataclass(frozen=True, slots=True)
+class ValidationViolation:
+    """A data-quality rule violation, separate from reconciliation differences."""
+
+    side: str
+    source: str
+    row_number: int
+    field: str
+    value: CellValue
+    rule: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
 class ReconciliationResult:
     """Complete deterministic outcome of one dataset comparison."""
 
@@ -85,6 +98,8 @@ class ReconciliationResult:
     case_sensitive_keys: bool
     field_normalizers: tuple[tuple[str, str], ...]
     comparison_policies: tuple[tuple[str, str], ...]
+    validation_rules: tuple[tuple[str, tuple[str, ...]], ...]
+    validation_violations: tuple[ValidationViolation, ...]
     matched_count: int
     differences: tuple[FieldDifference, ...]
     missing_from_left: tuple[MissingRecord, ...]
@@ -96,7 +111,7 @@ class ReconciliationResult:
 
     @property
     def is_clean(self) -> bool:
-        """Whether the inputs agree on schema, keys, and compared values."""
+        """Whether inputs agree and satisfy every configured validation rule."""
 
         return not any(
             (
@@ -107,12 +122,13 @@ class ReconciliationResult:
                 self.duplicate_right,
                 self.fields_only_left,
                 self.fields_only_right,
+                self.validation_violations,
             )
         )
 
     @property
     def difference_count(self) -> int:
-        """Count every independently actionable discrepancy."""
+        """Count reconciliation discrepancies without validation violations."""
 
         return sum(
             (
@@ -125,3 +141,15 @@ class ReconciliationResult:
                 len(self.fields_only_right),
             )
         )
+
+    @property
+    def validation_violation_count(self) -> int:
+        """Count data-quality rule violations across both inputs."""
+
+        return len(self.validation_violations)
+
+    @property
+    def issue_count(self) -> int:
+        """Count reconciliation discrepancies and validation violations."""
+
+        return self.difference_count + self.validation_violation_count

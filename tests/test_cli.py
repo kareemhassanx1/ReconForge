@@ -50,7 +50,8 @@ def test_compare_returns_one_and_writes_difference_report(
     captured = capsys.readouterr()
     assert status == 1
     assert "differences_found" in captured.out
-    assert "1 discrepancy" in captured.out
+    assert "1 reconciliation discrepancy" in captured.out
+    assert "0 validation violation" in captured.out
     assert json.loads(output.read_text(encoding="utf-8"))["status"] == "differences_found"
 
 
@@ -350,6 +351,10 @@ def test_cli_runs_end_to_end_from_project_config_with_mixed_formats(
                         "settled_on": "date",
                         "customer": "text",
                     },
+                    "validation_rules": {
+                        "amount": [{"type": "numeric_range", "minimum": "0", "maximum": "100"}],
+                        "customer": [{"type": "required"}],
+                    },
                 },
             }
         ),
@@ -365,6 +370,67 @@ def test_cli_runs_end_to_end_from_project_config_with_mixed_formats(
         "amount": "decimal:tolerance=0.01",
         "customer": "text",
         "settled_on": "date",
+    }
+    assert report["configuration"]["validation_rules"] == {
+        "amount": ["numeric_range:[0,100]"],
+        "customer": ["required"],
+    }
+    assert report["summary"]["validation_violations"] == 0
+
+
+def test_cli_reports_validation_violations_separately_from_differences(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    left = write_file(
+        tmp_path,
+        "left.csv",
+        "id,amount,status,reference\nA,10,,INV-100\n",
+    )
+    right = write_file(
+        tmp_path,
+        "right.csv",
+        "id,amount,status,reference\nA,10,,INV-100\n",
+    )
+    config = write_file(
+        tmp_path,
+        "reconforge.json",
+        json.dumps(
+            {
+                "version": 1,
+                "reconciliation": {
+                    "key_fields": ["id"],
+                    "validation_rules": {
+                        "amount": [{"type": "numeric_range", "minimum": "0", "maximum": "100"}],
+                        "reference": [{"type": "pattern", "pattern": "INV-[0-9]{3}"}],
+                        "status": [
+                            {"type": "required"},
+                            {"type": "allowed", "values": ["paid", "pending"]},
+                        ],
+                    },
+                },
+            }
+        ),
+    )
+
+    status = main(["compare", str(left), str(right), "--config", str(config)])
+
+    report = json.loads(capsys.readouterr().out)
+    assert status == 1
+    assert report["status"] == "validation_violations_found"
+    assert report["summary"]["discrepancies"] == 0
+    assert report["summary"]["validation_violations"] == 2
+    assert report["summary"]["issues"] == 2
+    assert report["differences"] == []
+    assert [item["side"] for item in report["validation_violations"]] == ["left", "right"]
+    assert report["validation_violations"][0] == {
+        "side": "left",
+        "source": str(left),
+        "row_number": 2,
+        "field": "status",
+        "value": None,
+        "rule": "required",
+        "message": "value is required",
     }
 
 

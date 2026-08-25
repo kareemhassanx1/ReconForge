@@ -17,6 +17,7 @@ added without coupling them to the command-line interface.
 - Normalize selected columns as text, integer, decimal, or ISO date values.
 - Apply explicit decimal-tolerance, normalized-date, or case-insensitive-text comparisons.
 - Load repeatable reconciliation settings from a strictly validated JSON project configuration.
+- Validate source data with composable required, allowed-value, numeric-range, and text-pattern rules.
 - Reconcile rows using one or more key columns.
 - Compare selected fields or all shared non-key fields.
 - Detect duplicate keys without silently selecting an arbitrary record.
@@ -120,6 +121,18 @@ remain command arguments, while formats and reconciliation behavior live in the 
       "amount": "decimal:0.01",
       "settled_on": "date",
       "customer_name": "text"
+    },
+    "validation_rules": {
+      "status": [
+        {"type": "required"},
+        {"type": "allowed", "values": ["paid", "pending"]}
+      ],
+      "amount": [
+        {"type": "numeric_range", "minimum": "0", "maximum": "10000"}
+      ],
+      "invoice_id": [
+        {"type": "pattern", "pattern": "INV-[0-9]{3}"}
+      ]
     }
   }
 }
@@ -133,9 +146,9 @@ reconforge compare accounting.export gateway.export --config reconforge.json
 
 Configuration version `1` accepts only the documented keys. Unknown or duplicate JSON keys,
 unsupported versions, wrong value types, duplicate field names, and invalid formats, normalizers,
-or policies are rejected before either dataset is read. `inputs.format` sets both input formats;
-`left_format` and `right_format` can select them independently. `delimiter` is available for CSV
-inputs.
+policies, or validation rules are rejected before either dataset is read. `inputs.format` sets
+both input formats; `left_format` and `right_format` can select them independently. `delimiter` is
+available for CSV inputs.
 
 Command-line options have explicit precedence:
 
@@ -151,8 +164,30 @@ Command-line options have explicit precedence:
 The JSON report records the effective ignored fields and key-case behavior alongside normalizers
 and comparison policies, so command-line overrides remain visible during review.
 
+## Data validation
+
+Validation rules are independent from value comparison. Configure one or more rules per field in
+`reconciliation.validation_rules`; they run in listed order for every row on both inputs:
+
+- `required` rejects null values. Other rule types skip null, so optional fields remain optional.
+- `allowed` accepts only the exact strings in `values`.
+- `numeric_range` parses finite decimal values and supports `minimum`, `maximum`,
+  `minimum_inclusive`, and `maximum_inclusive`. Bounds are inclusive by default.
+- `pattern` requires the entire value to match a Python regular expression.
+
+Rules run after any configured field normalizer, while violations retain the original source
+value. They may target ignored fields and are evaluated on unmatched rows, because data quality is
+separate from record matching. A rule field must exist in both inputs.
+
+Reports keep `validation_violations` separate from `differences`. Each violation includes the
+input side, source, row number, field, original value, rule descriptor, and message. Summary fields
+separately count `discrepancies`, `validation_violations`, and total `issues`. A validation-only run
+uses status `validation_violations_found`; a run containing both uses
+`differences_and_validation_violations_found`.
+
 The command exits with status `0` when both datasets reconcile, `1` when valid inputs contain
-differences, and `2` when an input or configuration error prevents comparison.
+differences or validation violations, and `2` when an input or configuration error prevents
+comparison.
 
 ## Input formats
 
