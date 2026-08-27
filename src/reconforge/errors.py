@@ -11,3 +11,7 @@ class InputError(ReconForgeError):
 
 class ConfigurationError(ReconForgeError):
     """Raised when reconciliation settings cannot be applied to the inputs."""
+
+
+class BatchError(ReconForgeError):
+    """Raised when a batch plan cannot be discovered or loaded safely."""

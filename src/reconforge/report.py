@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from reconforge.batch import BatchResult
 from reconforge.model import ReconciliationResult
 
 
@@ -104,6 +105,54 @@ def write_json_report(result: ReconciliationResult, destination: str | Path) -> 
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f"{path.name}.tmp")
     payload = json.dumps(result_to_dict(result), indent=2, ensure_ascii=False) + "\n"
+    temporary.write_text(payload, encoding="utf-8")
+    temporary.replace(path)
+    return path.resolve()
+
+
+def batch_result_to_dict(result: BatchResult) -> dict[str, Any]:
+    """Convert a batch result into a stable aggregate report."""
+
+    pair_reports = [
+        {
+            "name": item.pair.name,
+            "left": str(item.pair.left),
+            "right": str(item.pair.right),
+            "result": result_to_dict(item.result),
+        }
+        for item in result.pairs
+    ]
+    return {
+        "batch_report_version": 1,
+        "status": "clean" if result.is_clean else "issues_found",
+        "summary": {
+            "paired_inputs": len(result.pairs),
+            "clean_pairs": sum(item.result.is_clean for item in result.pairs),
+            "pairs_with_issues": sum(not item.result.is_clean for item in result.pairs),
+            "matched_records": sum(item.result.matched_count for item in result.pairs),
+            "discrepancies": sum(item.result.difference_count for item in result.pairs),
+            "validation_violations": sum(
+                item.result.validation_violation_count for item in result.pairs
+            ),
+            "unmatched_left": len(result.unmatched_left),
+            "unmatched_right": len(result.unmatched_right),
+            "issues": result.issue_count,
+        },
+        "unmatched_inputs": {
+            "left": [str(path) for path in result.unmatched_left],
+            "right": [str(path) for path in result.unmatched_right],
+        },
+        "pairs": pair_reports,
+    }
+
+
+def write_json_batch_report(result: BatchResult, destination: str | Path) -> Path:
+    """Write a batch report atomically and return its resolved destination."""
+
+    path = Path(destination)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.tmp")
+    payload = json.dumps(batch_result_to_dict(result), indent=2, ensure_ascii=False) + "\n"
     temporary.write_text(payload, encoding="utf-8")
     temporary.replace(path)
     return path.resolve()

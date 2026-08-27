@@ -106,6 +106,12 @@ _READERS: tuple[DatasetReader, ...] = (
 )
 
 
+def supported_extensions() -> tuple[str, ...]:
+    """Return every recognized dataset extension in stable order."""
+
+    return tuple(sorted(extension for reader in _READERS for extension in reader.extensions))
+
+
 def read_dataset(
     path: str | Path,
     options: DatasetReadOptions | None = None,

@@ -18,6 +18,7 @@ added without coupling them to the command-line interface.
 - Apply explicit decimal-tolerance, normalized-date, or case-insensitive-text comparisons.
 - Load repeatable reconciliation settings from a strictly validated JSON project configuration.
 - Validate source data with composable required, allowed-value, numeric-range, and text-pattern rules.
+- Reconcile deterministic directory or manifest batches with explicit unmatched-file reporting.
 - Reconcile rows using one or more key columns.
 - Compare selected fields or all shared non-key fields.
 - Detect duplicate keys without silently selecting an arbitrary record.
@@ -188,6 +189,46 @@ uses status `validation_violations_found`; a run containing both uses
 The command exits with status `0` when both datasets reconcile, `1` when valid inputs contain
 differences or validation violations, and `2` when an input or configuration error prevents
 comparison.
+
+## Batch reconciliation
+
+Compare two directory trees recursively with the same reconciliation settings used by `compare`:
+
+```powershell
+reconforge batch accounting-exports gateway-exports `
+  --config reconforge.json `
+  --output batch-report.json
+```
+
+Recognized files are paired by their extension-free relative path, so `north/january.csv` can be
+paired with `north/january.json`. Pair order is stable. Files present on only one side are listed
+under `unmatched_inputs` and make the batch exit with status `1`. If one side contains multiple
+recognized files with the same identity, such as `orders.csv` and `orders.json`, ReconForge stops
+with status `2` and reports the ambiguity rather than choosing one.
+
+For explicit pairing, use a versioned manifest whose paths are resolved relative to the manifest:
+
+```json
+{
+  "version": 1,
+  "pairs": [
+    {
+      "name": "north-january",
+      "left": "accounting/north-2026-01.csv",
+      "right": "gateway/north-2026-01.ndjson"
+    }
+  ]
+}
+```
+
+Run it with the same configuration and override options:
+
+```powershell
+reconforge batch --manifest batch.json --config reconforge.json
+```
+
+Batch reports contain each normal single-pair report plus aggregate counts for clean pairs, pairs
+with issues, matched records, discrepancies, validation violations, and unmatched inputs.
 
 ## Input formats
 
