@@ -26,6 +26,7 @@ from reconforge.report import (
     write_json_batch_report,
     write_json_report,
 )
+from reconforge.run_store import RunInput, RunStore, StoredRun, stored_run_to_dict
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -122,6 +123,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="write the JSON report to this path instead of stdout",
     )
+    compare.add_argument(
+        "--history-db",
+        type=Path,
+        help="record run metadata and summary in this local SQLite database",
+    )
 
     batch = subcommands.add_parser("batch", help="compare a deterministic batch of datasets")
     batch.add_argument(
@@ -142,6 +148,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="load explicitly named input pairs from a versioned JSON manifest",
     )
     _add_batch_reconciliation_arguments(batch)
+
+    history = subcommands.add_parser("history", help="inspect locally stored run history")
+    history_commands = history.add_subparsers(dest="history_command", required=True)
+    history_list = history_commands.add_parser("list", help="list newest stored runs")
+    history_list.add_argument("database", type=Path, help="SQLite history database")
+    history_list.add_argument("--limit", type=int, default=20, help="runs to return (1-1000)")
+    history_list.add_argument("--offset", type=int, default=0, help="newest runs to skip")
+    history_show = history_commands.add_parser("show", help="show one stored run")
+    history_show.add_argument("database", type=Path, help="SQLite history database")
+    history_show.add_argument("run_id", type=int, help="positive run identifier")
     return parser
 
 
@@ -155,6 +171,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_compare(arguments)
     if arguments.command == "batch":
         return _run_batch(arguments)
+    if arguments.command == "history":
+        return _run_history(arguments)
     parser.error(f"unsupported command: {arguments.command}")
     return 2
 
@@ -174,15 +192,21 @@ def _run_compare(arguments: argparse.Namespace) -> int:
         left = read_dataset(arguments.left, settings.left_options)
         right = read_dataset(arguments.right, settings.right_options)
         result = reconcile(left, right, settings.config)
+        report = result_to_dict(result)
+        stored = (
+            _record_compare_run(arguments.history_db, report, left.source, right.source)
+            if arguments.history_db
+            else None
+        )
     except (ReconForgeError, ValueError) as exc:
         print(f"reconforge: error: {exc}", file=sys.stderr)
         return 2
 
     if arguments.output:
         destination = write_json_report(result, arguments.output)
-        print(_summary(result_to_dict(result), destination))
+        print(_summary(report, destination, stored))
     else:
-        print(json.dumps(result_to_dict(result), indent=2, ensure_ascii=False))
+        print(json.dumps(report, indent=2, ensure_ascii=False))
 
     return 0 if result.is_clean else 1
 
@@ -209,17 +233,43 @@ def _run_batch(arguments: argparse.Namespace) -> int:
             left_options=settings.left_options,
             right_options=settings.right_options,
         )
+        report = batch_result_to_dict(result)
+        stored = _record_batch_run(arguments.history_db, report) if arguments.history_db else None
     except (ReconForgeError, ValueError) as exc:
         print(f"reconforge: error: {exc}", file=sys.stderr)
         return 2
 
-    report = batch_result_to_dict(result)
     if arguments.output:
         destination = write_json_batch_report(result, arguments.output)
-        print(_batch_summary(report, destination))
+        print(_batch_summary(report, destination, stored))
     else:
         print(json.dumps(report, indent=2, ensure_ascii=False))
     return 0 if result.is_clean else 1
+
+
+def _run_history(arguments: argparse.Namespace) -> int:
+    """Execute local history lookup and listing commands."""
+
+    try:
+        with RunStore(arguments.database) as store:
+            if arguments.history_command == "list":
+                runs = store.list_runs(limit=arguments.limit, offset=arguments.offset)
+                payload = {
+                    "schema_version": store.schema_version,
+                    "runs": [stored_run_to_dict(run, include_metadata=False) for run in runs],
+                }
+            elif arguments.history_command == "show":
+                payload = {
+                    "schema_version": store.schema_version,
+                    "run": stored_run_to_dict(store.get_run(arguments.run_id)),
+                }
+            else:
+                raise ValueError(f"unsupported history command: {arguments.history_command}")
+    except (ReconForgeError, ValueError) as exc:
+        print(f"reconforge: error: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 0
 
 
 def _resolve_execution_settings(arguments: argparse.Namespace) -> _ExecutionSettings:
@@ -297,6 +347,11 @@ def _add_batch_reconciliation_arguments(batch: argparse.ArgumentParser) -> None:
     batch.add_argument("--normalize", action="append", metavar="FIELD=TYPE")
     batch.add_argument("--policy", action="append", metavar="FIELD=SPEC")
     batch.add_argument("--output", type=Path, help="write the JSON batch report to this path")
+    batch.add_argument(
+        "--history-db",
+        type=Path,
+        help="record run metadata and summary in this local SQLite database",
+    )
 
 
 def _effective_format(
@@ -340,29 +395,104 @@ def _parse_policies(assignments: Sequence[str]) -> dict[str, ComparisonPolicy]:
     return policies
 
 
-def _summary(report: dict[str, object], destination: Path) -> str:
+def _summary(report: dict[str, object], destination: Path, stored: StoredRun | None = None) -> str:
     summary = report["summary"]
     if not isinstance(summary, dict):
         raise TypeError("report summary must be a mapping")
-    return (
+    message = (
         f"{report['status']}: {summary['matched_records']} matched record(s), "
         f"{summary['discrepancies']} reconciliation discrepancy item(s), "
         f"{summary['validation_violations']} validation violation(s); "
         f"report: {destination}"
     )
+    return _with_history(message, stored)
 
 
-def _batch_summary(report: dict[str, object], destination: Path) -> str:
+def _batch_summary(
+    report: dict[str, object], destination: Path, stored: StoredRun | None = None
+) -> str:
     summary = report["summary"]
     if not isinstance(summary, dict):
         raise TypeError("batch report summary must be a mapping")
-    return (
+    message = (
         f"{report['status']}: {summary['paired_inputs']} pair(s), "
         f"{summary['issues']} issue(s), "
         f"{summary['unmatched_left']} unmatched left input(s), "
         f"{summary['unmatched_right']} unmatched right input(s); "
         f"report: {destination}"
     )
+    return _with_history(message, stored)
+
+
+def _record_compare_run(
+    database: Path,
+    report: dict[str, object],
+    left_source: str,
+    right_source: str,
+) -> StoredRun:
+    with RunStore(database) as store:
+        return store.record_run(
+            command="compare",
+            status=str(report["status"]),
+            summary=_mapping(report["summary"], "report summary"),
+            metadata={
+                "report_version": report["report_version"],
+                "configuration": report["configuration"],
+                "schema": report["schema"],
+            },
+            inputs=(
+                RunInput("left", left_source),
+                RunInput("right", right_source),
+            ),
+        )
+
+
+def _record_batch_run(database: Path, report: dict[str, object]) -> StoredRun:
+    pairs = report["pairs"]
+    unmatched = _mapping(report["unmatched_inputs"], "unmatched inputs")
+    if not isinstance(pairs, list):
+        raise TypeError("batch report pairs must be a list")
+    inputs: list[RunInput] = []
+    pair_metadata: list[dict[str, object]] = []
+    for raw_pair in pairs:
+        pair = _mapping(raw_pair, "batch pair")
+        name = str(pair["name"])
+        result = _mapping(pair["result"], "batch pair result")
+        inputs.extend(
+            (
+                RunInput("left", str(pair["left"]), name),
+                RunInput("right", str(pair["right"]), name),
+            )
+        )
+        pair_metadata.append({"name": name, "status": result["status"]})
+    for side in ("left", "right"):
+        sources = unmatched[side]
+        if not isinstance(sources, list):
+            raise TypeError(f"unmatched {side} inputs must be a list")
+        inputs.extend(RunInput(side, str(source)) for source in sources)
+
+    with RunStore(database) as store:
+        return store.record_run(
+            command="batch",
+            status=str(report["status"]),
+            summary=_mapping(report["summary"], "batch report summary"),
+            metadata={
+                "batch_report_version": report["batch_report_version"],
+                "pairs": pair_metadata,
+                "unmatched_inputs": dict(unmatched),
+            },
+            inputs=inputs,
+        )
+
+
+def _mapping(value: object, label: str) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise TypeError(f"{label} must be a mapping")
+    return value
+
+
+def _with_history(message: str, stored: StoredRun | None) -> str:
+    return message if stored is None else f"{message}; history run: {stored.id}"
 
 
 if __name__ == "__main__":

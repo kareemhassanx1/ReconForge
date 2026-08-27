@@ -10,6 +10,7 @@ from reconforge.batch import (
     reconcile_batch,
 )
 from reconforge.csvio import CsvReadOptions, read_csv_dataset
+from reconforge.errors import RunNotFoundError, RunStoreError
 from reconforge.model import Dataset, ReconciliationResult, Record, ValidationViolation
 from reconforge.normalization import FieldNormalizer, NormalizerKind
 from reconforge.policies import ComparisonPolicy, ComparisonPolicyKind
@@ -21,6 +22,13 @@ from reconforge.project_config import (
 )
 from reconforge.readers import DatasetFormat, DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
+from reconforge.run_store import (
+    RUN_STORE_SCHEMA_VERSION,
+    RunInput,
+    RunStore,
+    StoredRun,
+    stored_run_to_dict,
+)
 from reconforge.validation import (
     AllowedValuesRule,
     NumericRangeRule,
@@ -52,6 +60,12 @@ __all__ = [
     "ReconciliationConfig",
     "ReconciliationResult",
     "RequiredRule",
+    "RUN_STORE_SCHEMA_VERSION",
+    "RunInput",
+    "RunNotFoundError",
+    "RunStore",
+    "RunStoreError",
+    "StoredRun",
     "TextPatternRule",
     "ValidationRule",
     "ValidationRuleKind",
@@ -63,6 +77,7 @@ __all__ = [
     "load_project_config",
     "reconcile",
     "reconcile_batch",
+    "stored_run_to_dict",
 ]
 
 __version__ = "0.1.0"

@@ -15,3 +15,11 @@ class ConfigurationError(ReconForgeError):
 
 class BatchError(ReconForgeError):
     """Raised when a batch plan cannot be discovered or loaded safely."""
+
+
+class RunStoreError(ReconForgeError):
+    """Raised when reconciliation history cannot be persisted or queried."""
+
+
+class RunNotFoundError(RunStoreError):
+    """Raised when a requested stored run does not exist."""

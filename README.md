@@ -19,6 +19,7 @@ added without coupling them to the command-line interface.
 - Load repeatable reconciliation settings from a strictly validated JSON project configuration.
 - Validate source data with composable required, allowed-value, numeric-range, and text-pattern rules.
 - Reconcile deterministic directory or manifest batches with explicit unmatched-file reporting.
+- Persist run metadata and aggregate summaries in a transactional, versioned SQLite history.
 - Reconcile rows using one or more key columns.
 - Compare selected fields or all shared non-key fields.
 - Detect duplicate keys without silently selecting an arbitrary record.
@@ -229,6 +230,37 @@ reconforge batch --manifest batch.json --config reconforge.json
 
 Batch reports contain each normal single-pair report plus aggregate counts for clean pairs, pairs
 with issues, matched records, discrepancies, validation violations, and unmatched inputs.
+
+## Local run history
+
+Add `--history-db` to either execution command to persist its status, summary, configuration
+metadata, and ordered input sources in a local SQLite database:
+
+```powershell
+reconforge compare accounting.csv gateway.csv `
+  --config reconforge.json `
+  --history-db .reconforge/history.sqlite
+
+reconforge batch accounting-exports gateway-exports `
+  --config reconforge.json `
+  --history-db .reconforge/history.sqlite
+```
+
+Each invocation creates a distinct run, even when the inputs are repeated. A run and all of its
+input rows are committed in one transaction, so a failed write cannot leave partial history.
+Schema migrations also run transactionally and are tracked with SQLite's `user_version`; a store
+created by a newer unsupported ReconForge version is rejected without modification.
+
+List the newest runs or inspect one run by its integer ID:
+
+```powershell
+reconforge history list .reconforge/history.sqlite --limit 20
+reconforge history show .reconforge/history.sqlite 42
+```
+
+History stores reconciliation metadata and summaries, not the complete difference payload. Keep
+using `--output` when the full report needs to be retained. History is local-only and does not
+require a service or network connection.
 
 ## Input formats
 
