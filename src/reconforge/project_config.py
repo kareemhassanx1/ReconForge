@@ -10,6 +10,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from reconforge.errors import ConfigurationError
+from reconforge.exporters import ReportFormat
 from reconforge.normalization import FieldNormalizer
 from reconforge.policies import ComparisonPolicy
 from reconforge.readers import DatasetFormat
@@ -23,8 +24,9 @@ from reconforge.validation import (
 
 PROJECT_CONFIG_VERSION = 1
 
-_TOP_LEVEL_KEYS = frozenset({"version", "inputs", "reconciliation"})
+_TOP_LEVEL_KEYS = frozenset({"version", "inputs", "reconciliation", "report"})
 _INPUT_KEYS = frozenset({"format", "left_format", "right_format", "delimiter"})
+_REPORT_KEYS = frozenset({"format"})
 _RECONCILIATION_KEYS = frozenset(
     {
         "key_fields",
@@ -51,6 +53,7 @@ class ProjectConfig:
     left_format: DatasetFormat | None = None
     right_format: DatasetFormat | None = None
     delimiter: str | None = None
+    report_format: ReportFormat | None = None
     key_fields: tuple[str, ...] | None = None
     compare_fields: tuple[str, ...] | None = None
     ignore_fields: tuple[str, ...] = ()
@@ -65,6 +68,10 @@ class ProjectConfig:
                 f"unsupported project configuration version {self.version!r}; "
                 f"expected {PROJECT_CONFIG_VERSION}"
             )
+        if isinstance(self.report_format, str) and not isinstance(self.report_format, ReportFormat):
+            object.__setattr__(self, "report_format", ReportFormat.named(self.report_format))
+        elif self.report_format is not None and not isinstance(self.report_format, ReportFormat):
+            raise TypeError("report format must be a ReportFormat, string, or null")
         object.__setattr__(
             self,
             "field_normalizers",
@@ -102,7 +109,9 @@ def load_project_config(path: str | Path) -> ProjectConfig:
 
     inputs = _optional_object(payload, "inputs", source)
     reconciliation = _optional_object(payload, "reconciliation", source)
+    report = _optional_object(payload, "report", source)
     _reject_unknown_keys(inputs, _INPUT_KEYS, source, "inputs")
+    _reject_unknown_keys(report, _REPORT_KEYS, source, "report")
     _reject_unknown_keys(
         reconciliation,
         _RECONCILIATION_KEYS,
@@ -116,6 +125,7 @@ def load_project_config(path: str | Path) -> ProjectConfig:
         left_format=_optional_format(inputs, "left_format", source),
         right_format=_optional_format(inputs, "right_format", source),
         delimiter=_optional_delimiter(inputs, source),
+        report_format=_optional_report_format(report, source),
         key_fields=_optional_field_list(
             reconciliation,
             "key_fields",
@@ -231,6 +241,18 @@ def _optional_delimiter(inputs: Mapping[str, object], source: Path) -> str | Non
     if not isinstance(value, str) or len(value) != 1:
         raise ProjectConfigError(f"{source}: inputs.delimiter must be exactly one character")
     return value
+
+
+def _optional_report_format(report: Mapping[str, object], source: Path) -> ReportFormat | None:
+    if "format" not in report:
+        return None
+    value = report["format"]
+    if not isinstance(value, str):
+        raise ProjectConfigError(f"{source}: report.format must be a string")
+    try:
+        return ReportFormat.named(value)
+    except ValueError as exc:
+        raise ProjectConfigError(f"{source}: invalid report.format: {exc}") from exc
 
 
 def _optional_field_list(

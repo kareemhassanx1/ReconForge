@@ -16,6 +16,12 @@ from reconforge.batch import (
 )
 from reconforge.batch_checkpoint import reconcile_batch_resumable
 from reconforge.errors import ReconForgeError
+from reconforge.exporters import (
+    ReportFormat,
+    infer_report_format,
+    render_report,
+    write_report,
+)
 from reconforge.normalization import FieldNormalizer
 from reconforge.policies import ComparisonPolicy
 from reconforge.project_config import ProjectConfig, load_project_config
@@ -24,8 +30,6 @@ from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import (
     batch_result_to_dict,
     result_to_dict,
-    write_json_batch_report,
-    write_json_report,
 )
 from reconforge.run_store import RunInput, RunStore, StoredRun, stored_run_to_dict
 
@@ -122,7 +126,12 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument(
         "--output",
         type=Path,
-        help="write the JSON report to this path instead of stdout",
+        help="write the report to this path instead of stdout",
+    )
+    compare.add_argument(
+        "--report-format",
+        metavar="FORMAT",
+        help="report format: json, csv, or html; overrides configuration and output suffix",
     )
     compare.add_argument(
         "--history-db",
@@ -183,6 +192,7 @@ class _ExecutionSettings:
     config: ReconciliationConfig
     left_options: DatasetReadOptions
     right_options: DatasetReadOptions
+    report_format: ReportFormat
 
 
 def _run_compare(arguments: argparse.Namespace) -> int:
@@ -204,10 +214,10 @@ def _run_compare(arguments: argparse.Namespace) -> int:
         return 2
 
     if arguments.output:
-        destination = write_json_report(result, arguments.output)
+        destination = write_report(report, arguments.output, settings.report_format)
         print(_summary(report, destination, stored))
     else:
-        print(json.dumps(report, indent=2, ensure_ascii=False))
+        print(render_report(report, settings.report_format), end="")
 
     return 0 if result.is_clean else 1
 
@@ -257,10 +267,10 @@ def _run_batch(arguments: argparse.Namespace) -> int:
         return 2
 
     if arguments.output:
-        destination = write_json_batch_report(result, arguments.output, execution=execution)
+        destination = write_report(report, arguments.output, settings.report_format)
         print(_batch_summary(report, destination, stored))
     else:
-        print(json.dumps(report, indent=2, ensure_ascii=False))
+        print(render_report(report, settings.report_format), end="")
     return 0 if result.is_clean else 1
 
 
@@ -343,6 +353,11 @@ def _resolve_execution_settings(arguments: argparse.Namespace) -> _ExecutionSett
         ),
         left_options=DatasetReadOptions(format=left_format, delimiter=delimiter),
         right_options=DatasetReadOptions(format=right_format, delimiter=delimiter),
+        report_format=_effective_report_format(
+            arguments.report_format,
+            project.report_format,
+            arguments.output,
+        ),
     )
 
 
@@ -363,7 +378,12 @@ def _add_batch_reconciliation_arguments(batch: argparse.ArgumentParser) -> None:
     batch.set_defaults(case_sensitive_keys=None)
     batch.add_argument("--normalize", action="append", metavar="FIELD=TYPE")
     batch.add_argument("--policy", action="append", metavar="FIELD=SPEC")
-    batch.add_argument("--output", type=Path, help="write the JSON batch report to this path")
+    batch.add_argument("--output", type=Path, help="write the batch report to this path")
+    batch.add_argument(
+        "--report-format",
+        metavar="FORMAT",
+        help="report format: json, csv, or html; overrides configuration and output suffix",
+    )
     batch.add_argument(
         "--checkpoint",
         type=Path,
@@ -387,6 +407,22 @@ def _effective_format(
     if shared_cli is not None:
         return DatasetFormat.named(shared_cli)
     return side_config or shared_config
+
+
+def _effective_report_format(
+    cli_format: str | None,
+    configured_format: ReportFormat | None,
+    output: Path | None,
+) -> ReportFormat:
+    if cli_format is not None:
+        return ReportFormat.named(cli_format)
+    if configured_format is not None:
+        return configured_format
+    if output is not None:
+        inferred = infer_report_format(output)
+        if inferred is not None:
+            return inferred
+    return ReportFormat.JSON
 
 
 def _parse_normalizers(assignments: Sequence[str]) -> dict[str, FieldNormalizer]:

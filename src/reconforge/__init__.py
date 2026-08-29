@@ -17,6 +17,12 @@ from reconforge.batch_checkpoint import (
 )
 from reconforge.csvio import CsvReadOptions, read_csv_dataset
 from reconforge.errors import RunNotFoundError, RunStoreError
+from reconforge.exporters import (
+    ReportFormat,
+    infer_report_format,
+    render_report,
+    write_report,
+)
 from reconforge.model import Dataset, ReconciliationResult, Record, ValidationViolation
 from reconforge.normalization import FieldNormalizer, NormalizerKind
 from reconforge.policies import ComparisonPolicy, ComparisonPolicyKind
@@ -64,6 +70,7 @@ __all__ = [
     "ProjectConfig",
     "ProjectConfigError",
     "Record",
+    "ReportFormat",
     "ReconciliationConfig",
     "ReconciliationResult",
     "ResumableBatchResult",
@@ -80,6 +87,7 @@ __all__ = [
     "ValidationViolation",
     "read_csv_dataset",
     "read_dataset",
+    "render_report",
     "discover_directory_batch",
     "load_batch_manifest",
     "load_project_config",
@@ -88,6 +96,8 @@ __all__ = [
     "reconcile_batch_resumable",
     "pair_fingerprint",
     "stored_run_to_dict",
+    "infer_report_format",
+    "write_report",
 ]
 
 __version__ = "0.1.0"

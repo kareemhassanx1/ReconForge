@@ -722,3 +722,121 @@ def test_cli_returns_two_for_unknown_explicit_format(tmp_path: Path, capsys) -> 
 
     assert status == 2
     assert "expected one of: csv, json, ndjson" in capsys.readouterr().err
+
+
+def test_cli_infers_csv_report_format_from_output_suffix(tmp_path: Path, capsys) -> None:
+    left = write_file(tmp_path, "left.csv", "id,value\nA,one\n")
+    right = write_file(tmp_path, "right.csv", "id,value\nA,two\n")
+    output = tmp_path / "report.csv"
+
+    status = main(["compare", str(left), str(right), "--key", "id", "--output", str(output)])
+
+    assert status == 1
+    assert "report:" in capsys.readouterr().out
+    assert output.read_text(encoding="utf-8").startswith("scope,pair_name,status,issue_type")
+
+
+def test_cli_can_render_a_self_contained_html_report_to_stdout(tmp_path: Path, capsys) -> None:
+    left = write_file(tmp_path, "left.csv", "id,value\nA,<unsafe>\n")
+    right = write_file(tmp_path, "right.csv", "id,value\nA,safe\n")
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--key",
+            "id",
+            "--report-format",
+            "html",
+        ]
+    )
+
+    rendered = capsys.readouterr().out
+    assert status == 1
+    assert rendered.startswith("<!doctype html>")
+    assert "&lt;unsafe&gt;" in rendered
+    assert "<unsafe>" not in rendered
+
+
+def test_project_report_format_applies_and_cli_can_override_it(tmp_path: Path, capsys) -> None:
+    left = write_file(tmp_path, "left.csv", "id,value\nA,one\n")
+    right = write_file(tmp_path, "right.csv", "id,value\nA,one\n")
+    config = tmp_path / "reconforge.json"
+    config.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "report": {"format": "csv"},
+                "reconciliation": {"key_fields": ["id"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert main(["compare", str(left), str(right), "--config", str(config)]) == 0
+    assert capsys.readouterr().out.startswith("scope,pair_name,status,issue_type")
+
+    assert (
+        main(
+            [
+                "compare",
+                str(left),
+                str(right),
+                "--config",
+                str(config),
+                "--report-format",
+                "json",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["status"] == "clean"
+
+
+def test_cli_batch_can_write_html_report(tmp_path: Path, capsys) -> None:
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+    write_file(left, "orders.csv", "id,value\nA,one\n")
+    write_file(right, "orders.csv", "id,value\nA,one\n")
+    output = tmp_path / "batch.html"
+
+    status = main(
+        [
+            "batch",
+            str(left),
+            str(right),
+            "--key",
+            "id",
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert status == 0
+    assert "report:" in capsys.readouterr().out
+    rendered = output.read_text(encoding="utf-8")
+    assert "ReconForge Batch Report" in rendered
+    assert "orders" in rendered
+
+
+def test_cli_returns_two_for_unknown_report_format(tmp_path: Path, capsys) -> None:
+    left = write_file(tmp_path, "left.csv", "id,value\nA,one\n")
+    right = write_file(tmp_path, "right.csv", "id,value\nA,one\n")
+
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--key",
+            "id",
+            "--report-format",
+            "pdf",
+        ]
+    )
+
+    assert status == 2
+    assert "expected one of: json, csv, html" in capsys.readouterr().err

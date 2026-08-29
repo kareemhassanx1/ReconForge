@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from reconforge.exporters import ReportFormat
 from reconforge.normalization import NormalizerKind
 from reconforge.policies import ComparisonPolicyKind
 from reconforge.project_config import (
@@ -38,6 +39,7 @@ def test_loads_a_complete_version_one_configuration(tmp_path: Path) -> None:
                 "right_format": "jsonl",
                 "delimiter": ";",
             },
+            "report": {"format": "html"},
             "reconciliation": {
                 "key_fields": [" invoice_id ", "period"],
                 "compare_fields": ["amount", "settled_on", "customer"],
@@ -77,6 +79,7 @@ def test_loads_a_complete_version_one_configuration(tmp_path: Path) -> None:
     assert config.left_format is DatasetFormat.CSV
     assert config.right_format is DatasetFormat.NDJSON
     assert config.delimiter == ";"
+    assert config.report_format is ReportFormat.HTML
     assert config.key_fields == ("invoice_id", "period")
     assert config.compare_fields == ("amount", "settled_on", "customer")
     assert config.ignore_fields == ("exported_at",)
@@ -95,6 +98,7 @@ def test_minimal_configuration_uses_safe_defaults(tmp_path: Path) -> None:
     config = load_project_config(write_config(tmp_path, {"version": 1}))
 
     assert config.key_fields is None
+    assert config.report_format is None
     assert config.compare_fields is None
     assert config.ignore_fields == ()
     assert config.case_sensitive_keys
@@ -164,6 +168,7 @@ def test_duplicate_object_keys_are_rejected(tmp_path: Path) -> None:
     ("payload", "location", "unknown"),
     [
         ({"version": 1, "output": {}}, "top level", "output"),
+        ({"version": 1, "report": {"template": "brief"}}, "report", "template"),
         ({"version": 1, "inputs": {"encoding": "utf-8"}}, "inputs", "encoding"),
         (
             {"version": 1, "reconciliation": {"keys": ["id"]}},
@@ -253,6 +258,20 @@ def test_input_settings_are_validated(
     message: str,
 ) -> None:
     path = write_config(tmp_path, {"version": 1, "inputs": inputs})
+
+    with pytest.raises(ProjectConfigError, match=message):
+        load_project_config(path)
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("pdf", "unknown report format"),
+        (42, "report.format must be a string"),
+    ],
+)
+def test_report_format_is_strictly_validated(tmp_path: Path, value: object, message: str) -> None:
+    path = write_config(tmp_path, {"version": 1, "report": {"format": value}})
 
     with pytest.raises(ProjectConfigError, match=message):
         load_project_config(path)

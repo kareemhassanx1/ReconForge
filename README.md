@@ -25,7 +25,7 @@ added without coupling them to the command-line interface.
 - Compare selected fields or all shared non-key fields.
 - Detect duplicate keys without silently selecting an arbitrary record.
 - Report fields that exist on only one side of the comparison.
-- Write a stable, human-readable JSON report.
+- Export one canonical report model as stable JSON, analysis-ready CSV, or self-contained HTML.
 - Return a non-zero CLI status when differences are found.
 
 ## Quick start
@@ -112,6 +112,9 @@ remain command arguments, while formats and reconciliation behavior live in the 
     "left_format": "csv",
     "right_format": "json"
   },
+  "report": {
+    "format": "html"
+  },
   "reconciliation": {
     "key_fields": ["invoice_id"],
     "compare_fields": ["amount", "settled_on", "customer_name"],
@@ -163,6 +166,8 @@ Command-line options have explicit precedence:
    assignment replaces the configured value for that same field.
 4. `--delimiter`, `--ignore-key-case`, and `--case-sensitive-keys` override their configured
    scalar values.
+5. `--report-format` overrides `report.format`; otherwise a recognized `--output` suffix selects
+   the format. JSON remains the default.
 
 The JSON report records the effective ignored fields and key-case behavior alongside normalizers
 and comparison policies, so command-line overrides remain visible during review.
@@ -283,6 +288,30 @@ reconforge history show .reconforge/history.sqlite 42
 History stores reconciliation metadata and summaries, not the complete difference payload. Keep
 using `--output` when the full report needs to be retained. History is local-only and does not
 require a service or network connection.
+
+## Report formats
+
+JSON is the canonical, lossless report model and remains the default. Choose a different exporter
+with `--report-format`, a configured `report.format`, or a recognized `.csv`, `.html`, or `.htm`
+output suffix:
+
+```powershell
+reconforge compare accounting.csv gateway.csv `
+  --key invoice_id `
+  --report-format csv `
+  --output reconciliation.csv
+
+reconforge batch accounting-exports gateway-exports `
+  --config reconforge.json `
+  --output batch-report.html
+```
+
+CSV contains a stable header followed by summary and issue rows for field differences, validation
+violations, missing records, duplicate keys, schema-only fields, and unmatched batch inputs. Values
+that spreadsheet programs could interpret as formulas are prefixed safely. HTML contains inline CSS
+and no scripts, remote assets, timestamps, or network dependencies; all report values are escaped
+and the canonical JSON remains available in a collapsible section. Both formats are deterministic
+for the same canonical report.
 
 ## Input formats
 
