@@ -9,6 +9,12 @@ from reconforge.batch import (
     load_batch_manifest,
     reconcile_batch,
 )
+from reconforge.batch_checkpoint import (
+    BATCH_CHECKPOINT_VERSION,
+    ResumableBatchResult,
+    pair_fingerprint,
+    reconcile_batch_resumable,
+)
 from reconforge.csvio import CsvReadOptions, read_csv_dataset
 from reconforge.errors import RunNotFoundError, RunStoreError
 from reconforge.model import Dataset, ReconciliationResult, Record, ValidationViolation
@@ -40,6 +46,7 @@ from reconforge.validation import (
 
 __all__ = [
     "BATCH_MANIFEST_VERSION",
+    "BATCH_CHECKPOINT_VERSION",
     "BatchPair",
     "BatchPlan",
     "BatchResult",
@@ -59,6 +66,7 @@ __all__ = [
     "Record",
     "ReconciliationConfig",
     "ReconciliationResult",
+    "ResumableBatchResult",
     "RequiredRule",
     "RUN_STORE_SCHEMA_VERSION",
     "RunInput",
@@ -77,6 +85,8 @@ __all__ = [
     "load_project_config",
     "reconcile",
     "reconcile_batch",
+    "reconcile_batch_resumable",
+    "pair_fingerprint",
     "stored_run_to_dict",
 ]
 

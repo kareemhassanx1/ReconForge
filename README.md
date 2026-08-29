@@ -19,6 +19,7 @@ added without coupling them to the command-line interface.
 - Load repeatable reconciliation settings from a strictly validated JSON project configuration.
 - Validate source data with composable required, allowed-value, numeric-range, and text-pattern rules.
 - Reconcile deterministic directory or manifest batches with explicit unmatched-file reporting.
+- Resume interrupted batches safely with content-addressed durable checkpoints.
 - Persist run metadata and aggregate summaries in a transactional, versioned SQLite history.
 - Reconcile rows using one or more key columns.
 - Compare selected fields or all shared non-key fields.
@@ -230,6 +231,27 @@ reconforge batch --manifest batch.json --config reconforge.json
 
 Batch reports contain each normal single-pair report plus aggregate counts for clean pairs, pairs
 with issues, matched records, discrepancies, validation violations, and unmatched inputs.
+
+### Resumable batches
+
+Use `--checkpoint` for a batch that may be interrupted or repeated:
+
+```powershell
+reconforge batch accounting-exports gateway-exports `
+  --config reconforge.json `
+  --checkpoint .reconforge/month-end.checkpoint.json
+```
+
+ReconForge writes the checkpoint atomically after every completed pair. On the next invocation it
+reuses a stored result only when the pair name, resolved input identities, file contents, detected
+or selected formats, reader options, and every effective reconciliation setting have the same
+SHA-256 fingerprint. Changed pairs are recomputed independently; unchanged pairs are reused. An
+interruption therefore leaves earlier completed pairs recoverable without treating partially
+processed work as complete.
+
+The batch report includes `execution.executed_pairs` and `execution.reused_pairs` whenever a
+checkpoint is used. Invalid, corrupt, or unsupported checkpoint files stop the command with exit
+status `2` instead of silently discarding recovery state.
 
 ## Local run history
 

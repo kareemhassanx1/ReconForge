@@ -14,6 +14,7 @@ from reconforge.batch import (
     load_batch_manifest,
     reconcile_batch,
 )
+from reconforge.batch_checkpoint import reconcile_batch_resumable
 from reconforge.errors import ReconForgeError
 from reconforge.normalization import FieldNormalizer
 from reconforge.policies import ComparisonPolicy
@@ -227,20 +228,36 @@ def _run_batch(arguments: argparse.Namespace) -> int:
                 arguments.left_directory,
                 arguments.right_directory,
             )
-        result = reconcile_batch(
-            plan,
-            settings.config,
-            left_options=settings.left_options,
-            right_options=settings.right_options,
-        )
-        report = batch_result_to_dict(result)
+        execution: dict[str, object] | None = None
+        if arguments.checkpoint:
+            resumed = reconcile_batch_resumable(
+                plan,
+                settings.config,
+                arguments.checkpoint,
+                left_options=settings.left_options,
+                right_options=settings.right_options,
+            )
+            result = resumed.result
+            execution = {
+                "checkpoint": str(resumed.checkpoint),
+                "reused_pairs": list(resumed.reused_pairs),
+                "executed_pairs": list(resumed.executed_pairs),
+            }
+        else:
+            result = reconcile_batch(
+                plan,
+                settings.config,
+                left_options=settings.left_options,
+                right_options=settings.right_options,
+            )
+        report = batch_result_to_dict(result, execution=execution)
         stored = _record_batch_run(arguments.history_db, report) if arguments.history_db else None
     except (ReconForgeError, ValueError) as exc:
         print(f"reconforge: error: {exc}", file=sys.stderr)
         return 2
 
     if arguments.output:
-        destination = write_json_batch_report(result, arguments.output)
+        destination = write_json_batch_report(result, arguments.output, execution=execution)
         print(_batch_summary(report, destination, stored))
     else:
         print(json.dumps(report, indent=2, ensure_ascii=False))
@@ -347,6 +364,11 @@ def _add_batch_reconciliation_arguments(batch: argparse.ArgumentParser) -> None:
     batch.add_argument("--normalize", action="append", metavar="FIELD=TYPE")
     batch.add_argument("--policy", action="append", metavar="FIELD=SPEC")
     batch.add_argument("--output", type=Path, help="write the JSON batch report to this path")
+    batch.add_argument(
+        "--checkpoint",
+        type=Path,
+        help="resume unchanged pairs from this durable content-addressed checkpoint",
+    )
     batch.add_argument(
         "--history-db",
         type=Path,

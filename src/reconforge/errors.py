@@ -17,6 +17,10 @@ class BatchError(ReconForgeError):
     """Raised when a batch plan cannot be discovered or loaded safely."""
 
 
+class BatchCheckpointError(BatchError):
+    """Raised when a resumable batch checkpoint is invalid or cannot be saved."""
+
+
 class RunStoreError(ReconForgeError):
     """Raised when reconciliation history cannot be persisted or queried."""
 
