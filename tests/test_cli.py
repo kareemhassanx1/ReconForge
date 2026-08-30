@@ -920,6 +920,11 @@ def test_cli_inspect_filters_saved_report_by_source_side(tmp_path: Path, capsys)
         "field_difference",
         "missing_from_left",
     ]
+    assert payload["facets"] == {
+        "kinds": {"field_difference": 1, "missing_from_left": 1},
+        "fields": {"value": 1},
+        "sides": {"left": 1, "right": 2},
+    }
 
 
 def test_cli_inspect_filters_saved_report_by_source_row_range(tmp_path: Path, capsys) -> None:

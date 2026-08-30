@@ -281,6 +281,39 @@ def test_page_cursor_rejects_malformed_tokens_and_changed_query_settings() -> No
         apply_page_cursor(ResultQuery(limit=2, sort=IssueSort.KEY), cursor)
 
 
+def test_facets_count_the_complete_filtered_set_before_pagination() -> None:
+    page = query_result(make_result(), ResultQuery(limit=1))
+    payload = result_page_to_dict(page)
+
+    assert page.returned_issues == 1
+    assert page.facets.by_kind == {kind: 1 for kind in IssueKind}
+    assert page.facets.by_field == {
+        "value": 1,
+        "status": 1,
+        "left_only": 1,
+        "right_only": 1,
+    }
+    assert page.facets.by_side == {"left": 4, "right": 3}
+    assert payload["facets"] == {
+        "kinds": {kind.value: 1 for kind in sorted(IssueKind, key=lambda item: item.value)},
+        "fields": {"left_only": 1, "right_only": 1, "status": 1, "value": 1},
+        "sides": {"left": 4, "right": 3},
+    }
+
+
+def test_facets_respect_filters_and_keep_all_sides_of_matching_issues() -> None:
+    page = query_result(make_result(), ResultQuery(sides=frozenset({"right"}), limit=1))
+
+    assert page.matched_issues == 3
+    assert page.facets.by_kind == {
+        IssueKind.FIELD_DIFFERENCE: 1,
+        IssueKind.MISSING_FROM_LEFT: 1,
+        IssueKind.DUPLICATE_KEY_RIGHT: 1,
+    }
+    assert page.facets.by_field == {"value": 1}
+    assert page.facets.by_side == {"left": 1, "right": 3}
+
+
 def test_query_never_changes_the_underlying_reconciliation_result() -> None:
     result = make_result()
     before = result_to_dict(result)

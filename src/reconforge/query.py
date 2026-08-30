@@ -7,6 +7,7 @@ import binascii
 import hashlib
 import hmac
 import json
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
@@ -169,6 +170,20 @@ class ResultIssue:
 
 
 @dataclass(frozen=True, slots=True)
+class ResultFacets:
+    """Counts across the complete filtered issue set, before pagination."""
+
+    by_kind: Mapping[IssueKind, int] = dataclass_field(default_factory=dict)
+    by_field: Mapping[str, int] = dataclass_field(default_factory=dict)
+    by_side: Mapping[str, int] = dataclass_field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "by_kind", MappingProxyType(dict(self.by_kind)))
+        object.__setattr__(self, "by_field", MappingProxyType(dict(self.by_field)))
+        object.__setattr__(self, "by_side", MappingProxyType(dict(self.by_side)))
+
+
+@dataclass(frozen=True, slots=True)
 class ResultPage:
     """A deterministic page and counts without modifying the source result."""
 
@@ -176,6 +191,7 @@ class ResultPage:
     total_issues: int
     matched_issues: int
     issues: tuple[ResultIssue, ...]
+    facets: ResultFacets
 
     @property
     def returned_issues(self) -> int:
@@ -207,6 +223,7 @@ def query_result(result: ReconciliationResult, query: ResultQuery | None = None)
         total_issues=len(all_issues),
         matched_issues=len(matched),
         issues=matched[start:stop],
+        facets=_build_facets(matched),
     )
 
 
@@ -226,6 +243,14 @@ def result_page_to_dict(page: ResultPage) -> dict[str, object]:
             "has_more": page.has_more,
             "next_offset": page.next_offset,
             "next_cursor": next_page_cursor(page),
+        },
+        "facets": {
+            "kinds": {
+                kind.value: page.facets.by_kind[kind]
+                for kind in sorted(page.facets.by_kind, key=lambda item: item.value)
+            },
+            "fields": dict(sorted(page.facets.by_field.items())),
+            "sides": dict(sorted(page.facets.by_side.items())),
         },
         "issues": [
             {
@@ -411,6 +436,15 @@ def _collect_issues(result: ReconciliationResult) -> tuple[ResultIssue, ...]:
         ResultIssue(IssueKind.FIELD_ONLY_RIGHT, field=name) for name in result.fields_only_right
     )
     return tuple(issues)
+
+
+def _build_facets(issues: tuple[ResultIssue, ...]) -> ResultFacets:
+    kinds = Counter(issue.kind for issue in issues)
+    fields = Counter(issue.field for issue in issues if issue.field is not None)
+    sides: Counter[str] = Counter()
+    for issue in issues:
+        sides.update({row.side for row in issue.source_rows})
+    return ResultFacets(by_kind=kinds, by_field=fields, by_side=sides)
 
 
 def _sort_issues(

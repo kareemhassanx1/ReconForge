@@ -35,6 +35,7 @@ from reconforge.project_config import (
 from reconforge.query import (
     IssueKind,
     IssueSort,
+    ResultFacets,
     ResultIssue,
     ResultPage,
     ResultQuery,
@@ -85,6 +86,7 @@ __all__ = [
     "ProjectConfigError",
     "Record",
     "ResultIssue",
+    "ResultFacets",
     "ResultPage",
     "ResultQuery",
     "ReportFormat",
