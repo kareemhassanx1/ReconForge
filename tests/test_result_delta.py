@@ -196,6 +196,31 @@ def test_delta_pagination_validates_bounds_and_reports_terminal_pages() -> None:
         DeltaQuery(limit=0)
 
 
+def test_delta_facets_cover_filtered_entries_before_pagination() -> None:
+    delta = compare_results(
+        make_result(("A", "B", "D"), ("A", "C", "E")),
+        make_result(("A", "B", "F"), ("A", "C", "G")),
+    )
+
+    page = query_delta(
+        delta,
+        DeltaQuery(
+            statuses=frozenset({DeltaStatus.ADDED, DeltaStatus.RESOLVED}),
+            limit=1,
+        ),
+    )
+
+    assert page.returned_entries == 1
+    assert page.facets.by_status == {DeltaStatus.ADDED: 2, DeltaStatus.RESOLVED: 2}
+    assert page.facets.by_kind == {
+        IssueKind.MISSING_FROM_LEFT: 2,
+        IssueKind.MISSING_FROM_RIGHT: 2,
+    }
+    assert page.facets.by_field == {}
+    with pytest.raises(TypeError):
+        page.facets.by_status[DeltaStatus.MOVED] = 1  # type: ignore[index]
+
+
 def test_delta_public_objects_validate_inconsistent_states() -> None:
     issue = result_issues(make_result(("A",), ("A",)))[0]
 

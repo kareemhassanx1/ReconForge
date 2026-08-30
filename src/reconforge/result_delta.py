@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
+from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from enum import StrEnum
+from types import MappingProxyType
 
 from reconforge.model import ReconciliationResult, RecordKey
 from reconforge.query import IssueKind, ResultIssue, issue_fingerprint, result_issues
@@ -144,6 +146,7 @@ class DeltaPage:
     total_entries: int
     matched_entries: int
     issues: tuple[DeltaIssue, ...]
+    facets: DeltaFacets
 
     @property
     def returned_entries(self) -> int:
@@ -158,6 +161,20 @@ class DeltaPage:
         if not self.has_more:
             return None
         return self.query.offset + self.returned_entries
+
+
+@dataclass(frozen=True, slots=True)
+class DeltaFacets:
+    """Counts across a complete filtered delta set, before pagination."""
+
+    by_status: Mapping[DeltaStatus, int] = dataclass_field(default_factory=dict)
+    by_kind: Mapping[IssueKind, int] = dataclass_field(default_factory=dict)
+    by_field: Mapping[str, int] = dataclass_field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "by_status", MappingProxyType(dict(self.by_status)))
+        object.__setattr__(self, "by_kind", MappingProxyType(dict(self.by_kind)))
+        object.__setattr__(self, "by_field", MappingProxyType(dict(self.by_field)))
 
 
 def compare_results(
@@ -242,6 +259,7 @@ def query_delta(delta: ResultDelta, query: DeltaQuery | None = None) -> DeltaPag
         total_entries=len(delta.issues),
         matched_entries=len(matched),
         issues=matched[start:stop],
+        facets=_build_delta_facets(matched),
     )
 
 
@@ -254,3 +272,11 @@ def _matches_delta(item: DeltaIssue, query: DeltaQuery) -> bool:
     if query.keys and (issue.key is None or issue.key not in query.keys):
         return False
     return not query.fields or (issue.field is not None and issue.field in query.fields)
+
+
+def _build_delta_facets(issues: tuple[DeltaIssue, ...]) -> DeltaFacets:
+    return DeltaFacets(
+        by_status=Counter(item.status for item in issues),
+        by_kind=Counter(item.issue.kind for item in issues),
+        by_field=Counter(item.issue.field for item in issues if item.issue.field is not None),
+    )
