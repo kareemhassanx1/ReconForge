@@ -37,26 +37,26 @@ def make_result(left_ids: tuple[str, ...], right_ids: tuple[str, ...]):
     return reconcile(left, right, ReconciliationConfig(key_fields=("id",)))
 
 
-def make_moved_result(leading_rows: int):
+def make_moved_result(leading_rows: int, field: str = "value"):
     shared = tuple(
-        Record("left.csv", index + 2, {"id": f"S{index}", "value": "same"})
+        Record("left.csv", index + 2, {"id": f"S{index}", field: "same"})
         for index in range(leading_rows)
     )
     left = Dataset(
         "left.csv",
-        ("id", "value"),
-        (*shared, Record("left.csv", leading_rows + 2, {"id": "A", "value": "old"})),
+        ("id", field),
+        (*shared, Record("left.csv", leading_rows + 2, {"id": "A", field: "old"})),
     )
     right_shared = tuple(
-        Record("right.csv", index + 2, {"id": f"S{index}", "value": "same"})
+        Record("right.csv", index + 2, {"id": f"S{index}", field: "same"})
         for index in range(leading_rows)
     )
     right = Dataset(
         "right.csv",
-        ("id", "value"),
+        ("id", field),
         (
             *right_shared,
-            Record("right.csv", leading_rows + 2, {"id": "A", "value": "new"}),
+            Record("right.csv", leading_rows + 2, {"id": "A", field: "new"}),
         ),
     )
     return reconcile(left, right, ReconciliationConfig(key_fields=("id",)))
