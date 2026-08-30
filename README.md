@@ -27,6 +27,7 @@ added without coupling them to the command-line interface.
 - Report fields that exist on only one side of the comparison.
 - Export one canonical report model as stable JSON, analysis-ready CSV, or self-contained HTML.
 - Investigate saved JSON results with deterministic filters, sorting, facets, cursors, and exports.
+- Compare saved reports to identify added, moved, resolved, and unchanged issues.
 - Return a non-zero CLI status when differences are found.
 
 ## Quick start
@@ -367,6 +368,33 @@ The page reports both the original issue count and the filtered match count, plu
 or its original summary. Unknown issue kinds, fields not present in the result, wrong key arity,
 invalid sides or rows, cursor mismatches, and out-of-range page bounds return exit status `2` with
 an actionable error.
+
+## Report-to-report deltas
+
+Compare a current canonical JSON report with an earlier baseline without re-running either
+reconciliation:
+
+```powershell
+reconforge diff baseline.json current.json `
+  --status added `
+  --status moved `
+  --kind field_difference `
+  --field amount `
+  --limit 100 `
+  --output delta.html
+```
+
+Delta entries are classified as `added`, `resolved`, or `unchanged` using stable issue
+fingerprints. If the non-location content is identical but source row numbers changed, the entry
+is classified as `moved` instead of being reported misleadingly as one resolved and one added
+issue. Repeated status, kind, key, or field filters use OR within their dimension and AND across
+dimensions. Pagination counts and facets are calculated over the complete filtered delta set.
+
+Output defaults to deterministic JSON and can be rendered as analysis-ready CSV or self-contained
+HTML with `--report-format` or an inferred `--output` suffix. File output is atomic. Use
+`--fail-on-change` in CI to return status `1` when the filtered set contains any added, moved, or
+resolved entry; successful execution with only unchanged entries returns `0`, and invalid input
+returns `2`.
 
 ## Input formats
 

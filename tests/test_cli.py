@@ -1076,3 +1076,116 @@ def test_cli_inspect_rejects_batch_report_with_actionable_version_error(
 
     assert status == 2
     assert "unsupported report version None; expected 1" in capsys.readouterr().err
+
+
+def write_delta_reports(tmp_path: Path, capsys) -> tuple[Path, Path]:
+    baseline_left = write_file(tmp_path, "baseline-left.csv", "id,value\nA,one\nB,two\n")
+    baseline_right = write_file(
+        tmp_path,
+        "baseline-right.csv",
+        "id,value\nA,changed\nC,three\n",
+    )
+    current_left = write_file(
+        tmp_path,
+        "current-left.csv",
+        "id,value\nA,one\nB,two\nD,four\n",
+    )
+    current_right = write_file(
+        tmp_path,
+        "current-right.csv",
+        "id,value\nA,changed\nC,three\nE,five\n",
+    )
+    baseline = tmp_path / "baseline.json"
+    current = tmp_path / "current.json"
+    for left, right, output in (
+        (baseline_left, baseline_right, baseline),
+        (current_left, current_right, current),
+    ):
+        assert main(["compare", str(left), str(right), "--key", "id", "--output", str(output)]) == 1
+        capsys.readouterr()
+    return baseline, current
+
+
+def test_cli_diff_filters_and_paginates_saved_reports(tmp_path: Path, capsys) -> None:
+    baseline, current = write_delta_reports(tmp_path, capsys)
+
+    status = main(
+        [
+            "diff",
+            str(baseline),
+            str(current),
+            "--status",
+            "added",
+            "--limit",
+            "1",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert payload["page"]["baseline_total"] == 3
+    assert payload["page"]["current_total"] == 5
+    assert payload["page"]["matched_entries"] == 2
+    assert payload["page"]["returned_entries"] == 1
+    assert payload["facets"]["statuses"] == {"added": 2}
+    assert payload["issues"][0]["status"] == "added"
+
+
+def test_cli_diff_writes_inferred_format_and_supports_ci_gate(tmp_path: Path, capsys) -> None:
+    baseline, current = write_delta_reports(tmp_path, capsys)
+    output = tmp_path / "nested" / "delta.csv"
+
+    status = main(
+        [
+            "diff",
+            str(baseline),
+            str(current),
+            "--status",
+            "added",
+            "--output",
+            str(output),
+            "--fail-on-change",
+        ]
+    )
+
+    summary = capsys.readouterr().out
+    assert status == 1
+    assert "3 baseline issue(s), 5 current issue(s)" in summary
+    assert f"report: {output.resolve()}" in summary
+    assert output.read_text(encoding="utf-8").startswith("status,kind,key,field,")
+    assert not output.with_name(f".{output.name}.tmp").exists()
+
+    status = main(
+        [
+            "diff",
+            str(baseline),
+            str(current),
+            "--status",
+            "unchanged",
+            "--fail-on-change",
+        ]
+    )
+    capsys.readouterr()
+    assert status == 0
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        (["--status", "regressed"], "unknown delta status"),
+        (["--kind", "money"], "unknown issue kind"),
+        (["--key", "not-json"], "expected a JSON array"),
+        (["--limit", "0"], "limit must be an integer from 1 to 1000"),
+        (["--offset", "-1"], "offset must be a non-negative integer"),
+        (["--report-format", "pdf"], "unknown report format"),
+    ],
+)
+def test_cli_diff_rejects_invalid_options(
+    tmp_path: Path, capsys, arguments: list[str], message: str
+) -> None:
+    baseline, current = write_delta_reports(tmp_path, capsys)
+
+    status = main(["diff", str(baseline), str(current), *arguments])
+
+    assert status == 2
+    assert message in capsys.readouterr().err

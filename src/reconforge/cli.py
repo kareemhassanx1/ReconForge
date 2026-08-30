@@ -42,6 +42,13 @@ from reconforge.report import (
     load_json_report,
     result_to_dict,
 )
+from reconforge.result_delta import (
+    DeltaQuery,
+    DeltaStatus,
+    compare_results,
+    query_delta,
+)
+from reconforge.result_delta_exporters import render_delta_page, write_delta_page
 from reconforge.run_store import RunInput, RunStore, StoredRun, stored_run_to_dict
 
 
@@ -243,6 +250,50 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FORMAT",
         help="output format: json, csv, or html; otherwise inferred from --output",
     )
+
+    diff = subcommands.add_parser(
+        "diff",
+        help="compare issues in baseline and current saved JSON reports",
+    )
+    diff.add_argument("baseline", type=Path, help="baseline canonical JSON report")
+    diff.add_argument("current", type=Path, help="current canonical JSON report")
+    diff.add_argument(
+        "--status",
+        action="append",
+        metavar="STATUS",
+        help="include added, moved, resolved, or unchanged; repeat for alternatives",
+    )
+    diff.add_argument(
+        "--kind",
+        action="append",
+        metavar="KIND",
+        help="issue kind to include; repeat for alternatives",
+    )
+    diff.add_argument(
+        "--key",
+        action="append",
+        metavar="JSON_ARRAY",
+        help='exact record key as a JSON array, for example: ["INV-100"]',
+    )
+    diff.add_argument(
+        "--field",
+        action="append",
+        metavar="FIELD",
+        help="field to include; repeat for alternatives",
+    )
+    diff.add_argument("--offset", type=int, default=0, help="matching entries to skip")
+    diff.add_argument("--limit", type=int, default=50, help="entries to return (1-1000)")
+    diff.add_argument("--output", type=Path, help="atomically write the delta page")
+    diff.add_argument(
+        "--report-format",
+        metavar="FORMAT",
+        help="output format: json, csv, or html; otherwise inferred from --output",
+    )
+    diff.add_argument(
+        "--fail-on-change",
+        action="store_true",
+        help="return status 1 when the filtered set contains added, moved, or resolved entries",
+    )
     return parser
 
 
@@ -260,6 +311,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_history(arguments)
     if arguments.command == "inspect":
         return _run_inspect(arguments)
+    if arguments.command == "diff":
+        return _run_diff(arguments)
     parser.error(f"unsupported command: {arguments.command}")
     return 2
 
@@ -421,6 +474,52 @@ def _run_inspect(arguments: argparse.Namespace) -> int:
     else:
         print(rendered, end="")
     return 0
+
+
+def _run_diff(arguments: argparse.Namespace) -> int:
+    """Compare two canonical reports and render a filtered issue delta."""
+
+    try:
+        baseline = load_json_report(arguments.baseline)
+        current = load_json_report(arguments.current)
+        selected = DeltaQuery(
+            statuses=frozenset(DeltaStatus.named(name) for name in arguments.status or ()),
+            kinds=frozenset(IssueKind.named(name) for name in arguments.kind or ()),
+            keys=frozenset(_parse_query_key(value) for value in arguments.key or ()),
+            fields=frozenset(_parse_query_field(value) for value in arguments.field or ()),
+            offset=arguments.offset,
+            limit=arguments.limit,
+        )
+        page = query_delta(compare_results(baseline, current), selected)
+        report_format = _effective_report_format(
+            arguments.report_format,
+            None,
+            arguments.output,
+        )
+        if arguments.output:
+            destination = write_delta_page(page, arguments.output, report_format)
+            rendered = None
+        else:
+            destination = None
+            rendered = render_delta_page(page, report_format)
+    except (OSError, ReconForgeError, ValueError) as exc:
+        print(f"reconforge: error: {exc}", file=sys.stderr)
+        return 2
+
+    if destination is not None:
+        print(
+            f"{page.baseline_total} baseline issue(s), {page.current_total} current issue(s), "
+            f"{page.matched_entries} matching delta entry(s), "
+            f"{page.returned_entries} returned; report: {destination}"
+        )
+    else:
+        print(rendered, end="")
+    changed = sum(
+        count
+        for status, count in page.facets.by_status.items()
+        if status is not DeltaStatus.UNCHANGED
+    )
+    return 1 if arguments.fail_on_change and changed else 0
 
 
 def _resolve_execution_settings(arguments: argparse.Namespace) -> _ExecutionSettings:
