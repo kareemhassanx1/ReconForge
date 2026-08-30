@@ -14,6 +14,7 @@ class DeltaStatus(StrEnum):
     """How one issue changed between a baseline and current result."""
 
     ADDED = "added"
+    MOVED = "moved"
     RESOLVED = "resolved"
     UNCHANGED = "unchanged"
 
@@ -35,6 +36,15 @@ class DeltaIssue:
             self.baseline is None or self.current is not None
         ):
             raise ValueError("resolved delta issues require only a baseline issue")
+        if self.status is DeltaStatus.MOVED:
+            if self.baseline is None or self.current is None:
+                raise ValueError("moved delta issues require baseline and current issues")
+            if issue_fingerprint(self.baseline) == issue_fingerprint(self.current):
+                raise ValueError("moved delta issues must have different source locations")
+            if issue_fingerprint(self.baseline, include_source_rows=False) != issue_fingerprint(
+                self.current, include_source_rows=False
+            ):
+                raise ValueError("moved delta issues must have identical non-location content")
         if self.status is DeltaStatus.UNCHANGED:
             if self.baseline is None or self.current is None:
                 raise ValueError("unchanged delta issues require baseline and current issues")
@@ -68,12 +78,16 @@ class ResultDelta:
         return tuple(item for item in self.issues if item.status is DeltaStatus.RESOLVED)
 
     @property
+    def moved(self) -> tuple[DeltaIssue, ...]:
+        return tuple(item for item in self.issues if item.status is DeltaStatus.MOVED)
+
+    @property
     def unchanged(self) -> tuple[DeltaIssue, ...]:
         return tuple(item for item in self.issues if item.status is DeltaStatus.UNCHANGED)
 
     @property
     def changed_count(self) -> int:
-        return len(self.added) + len(self.resolved)
+        return len(self.added) + len(self.moved) + len(self.resolved)
 
 
 def compare_results(
@@ -93,15 +107,33 @@ def compare_results(
         buckets[issue_fingerprint(issue)].append((index, issue))
 
     consumed: set[int] = set()
-    delta_issues: list[DeltaIssue] = []
-    for issue in current_issues:
+    current_delta: dict[int, DeltaIssue] = {}
+    unmatched_current: list[tuple[int, ResultIssue]] = []
+    for current_index, issue in enumerate(current_issues):
         matches = buckets[issue_fingerprint(issue)]
         if matches:
             index, baseline_issue = matches.popleft()
             consumed.add(index)
-            delta_issues.append(DeltaIssue(DeltaStatus.UNCHANGED, baseline_issue, issue))
+            current_delta[current_index] = DeltaIssue(DeltaStatus.UNCHANGED, baseline_issue, issue)
         else:
-            delta_issues.append(DeltaIssue(DeltaStatus.ADDED, None, issue))
+            unmatched_current.append((current_index, issue))
+
+    location_buckets: dict[str, deque[tuple[int, ResultIssue]]] = defaultdict(deque)
+    for baseline_index, issue in enumerate(baseline_issues):
+        if baseline_index not in consumed:
+            location_buckets[issue_fingerprint(issue, include_source_rows=False)].append(
+                (baseline_index, issue)
+            )
+    for current_index, issue in unmatched_current:
+        matches = location_buckets[issue_fingerprint(issue, include_source_rows=False)]
+        if matches:
+            baseline_index, baseline_issue = matches.popleft()
+            consumed.add(baseline_index)
+            current_delta[current_index] = DeltaIssue(DeltaStatus.MOVED, baseline_issue, issue)
+        else:
+            current_delta[current_index] = DeltaIssue(DeltaStatus.ADDED, None, issue)
+
+    delta_issues = [current_delta[index] for index in range(len(current_issues))]
     delta_issues.extend(
         DeltaIssue(DeltaStatus.RESOLVED, issue, None)
         for index, issue in enumerate(baseline_issues)

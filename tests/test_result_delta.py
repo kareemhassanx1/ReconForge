@@ -28,6 +28,31 @@ def make_result(left_ids: tuple[str, ...], right_ids: tuple[str, ...]):
     return reconcile(left, right, ReconciliationConfig(key_fields=("id",)))
 
 
+def make_moved_result(leading_rows: int):
+    shared = tuple(
+        Record("left.csv", index + 2, {"id": f"S{index}", "value": "same"})
+        for index in range(leading_rows)
+    )
+    left = Dataset(
+        "left.csv",
+        ("id", "value"),
+        (*shared, Record("left.csv", leading_rows + 2, {"id": "A", "value": "old"})),
+    )
+    right_shared = tuple(
+        Record("right.csv", index + 2, {"id": f"S{index}", "value": "same"})
+        for index in range(leading_rows)
+    )
+    right = Dataset(
+        "right.csv",
+        ("id", "value"),
+        (
+            *right_shared,
+            Record("right.csv", leading_rows + 2, {"id": "A", "value": "new"}),
+        ),
+    )
+    return reconcile(left, right, ReconciliationConfig(key_fields=("id",)))
+
+
 def test_compare_results_classifies_added_resolved_and_unchanged_issues() -> None:
     baseline = make_result(("A", "B"), ("A", "C"))
     current = make_result(("A", "B", "D"), ("A", "C", "E"))
@@ -59,6 +84,20 @@ def test_compare_results_reports_resolved_issues_in_baseline_order() -> None:
     assert delta.changed_count == 4
 
 
+def test_compare_results_classifies_source_row_relocation_as_moved() -> None:
+    delta = compare_results(make_moved_result(0), make_moved_result(2))
+
+    assert delta.added == ()
+    assert delta.resolved == ()
+    assert delta.unchanged == ()
+    assert len(delta.moved) == 1
+    assert delta.changed_count == 1
+    assert delta.moved[0].baseline is not None
+    assert delta.moved[0].current is not None
+    assert [row.row_number for row in delta.moved[0].baseline.source_rows] == [2, 2]
+    assert [row.row_number for row in delta.moved[0].current.source_rows] == [4, 4]
+
+
 def test_compare_results_never_mutates_source_results() -> None:
     baseline = make_result(("A", "B"), ("A", "C"))
     current = make_result(("A", "D"), ("A", "E"))
@@ -80,5 +119,7 @@ def test_delta_public_objects_validate_inconsistent_states() -> None:
         DeltaIssue(DeltaStatus.ADDED, issue, issue)
     with pytest.raises(ValueError, match="only a baseline"):
         DeltaIssue(DeltaStatus.RESOLVED, issue, issue)
+    with pytest.raises(ValueError, match="different source locations"):
+        DeltaIssue(DeltaStatus.MOVED, issue, issue)
     with pytest.raises(TypeError, match="baseline must be"):
         compare_results(object(), make_result(("A",), ("A",)))  # type: ignore[arg-type]
