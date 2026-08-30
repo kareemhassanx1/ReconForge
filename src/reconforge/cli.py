@@ -33,8 +33,8 @@ from reconforge.query import (
     SourceRowRange,
     apply_page_cursor,
     query_result,
-    result_page_to_dict,
 )
+from reconforge.query_exporters import render_result_page, write_result_page
 from reconforge.readers import DatasetFormat, DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import (
@@ -233,6 +233,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--cursor",
         help="opaque next-page cursor returned by an earlier identical query",
     )
+    inspect.add_argument(
+        "--output",
+        type=Path,
+        help="atomically write the investigation page instead of stdout",
+    )
+    inspect.add_argument(
+        "--report-format",
+        metavar="FORMAT",
+        help="output format: json, csv, or html; otherwise inferred from --output",
+    )
     return parser
 
 
@@ -389,10 +399,27 @@ def _run_inspect(arguments: argparse.Namespace) -> int:
                 raise ValueError("--cursor cannot be combined with a non-zero --offset")
             selected = apply_page_cursor(selected, arguments.cursor)
         page = query_result(result, selected)
-    except (ReconForgeError, ValueError) as exc:
+        report_format = _effective_report_format(
+            arguments.report_format,
+            None,
+            arguments.output,
+        )
+        if arguments.output:
+            destination = write_result_page(page, arguments.output, report_format)
+            rendered = None
+        else:
+            destination = None
+            rendered = render_result_page(page, report_format)
+    except (OSError, ReconForgeError, ValueError) as exc:
         print(f"reconforge: error: {exc}", file=sys.stderr)
         return 2
-    print(json.dumps(result_page_to_dict(page), indent=2, ensure_ascii=False))
+    if destination is not None:
+        print(
+            f"{page.matched_issues} matching issue(s), "
+            f"{page.returned_issues} returned issue(s); report: {destination}"
+        )
+    else:
+        print(rendered, end="")
     return 0
 
 

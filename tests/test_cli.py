@@ -934,9 +934,7 @@ def test_cli_inspect_filters_saved_report_by_source_row_range(tmp_path: Path, ca
 
     payload = json.loads(capsys.readouterr().out)
     assert status == 0
-    assert payload["filters"]["source_row_ranges"] == [
-        {"side": "right", "start": 3, "end": 9}
-    ]
+    assert payload["filters"]["source_row_ranges"] == [{"side": "right", "start": 3, "end": 9}]
     assert [item["kind"] for item in payload["issues"]] == ["missing_from_left"]
 
 
@@ -978,6 +976,53 @@ def test_cli_inspect_sorts_saved_report_by_key(tmp_path: Path, capsys) -> None:
     assert [item["key"] for item in payload["issues"]] == [["A"], ["B"], ["C"]]
 
 
+def test_cli_inspect_renders_csv_to_stdout(tmp_path: Path, capsys) -> None:
+    report = write_investigation_report(tmp_path, capsys)
+
+    status = main(["inspect", str(report), "--report-format", "csv"])
+
+    rendered = capsys.readouterr().out
+    assert status == 0
+    assert rendered.startswith("kind,key,field,source_rows,details\n")
+    assert "field_difference" in rendered
+
+
+def test_cli_inspect_atomically_writes_format_inferred_from_suffix(tmp_path: Path, capsys) -> None:
+    report = write_investigation_report(tmp_path, capsys)
+    output = tmp_path / "nested" / "investigation.html"
+
+    status = main(["inspect", str(report), "--output", str(output)])
+
+    summary = capsys.readouterr().out
+    assert status == 0
+    assert "3 matching issue(s), 3 returned issue(s)" in summary
+    assert f"report: {output.resolve()}" in summary
+    assert output.read_text(encoding="utf-8").startswith("<!doctype html>")
+    assert not output.with_name(f".{output.name}.tmp").exists()
+
+
+def test_cli_inspect_explicit_format_overrides_unknown_output_suffix(
+    tmp_path: Path, capsys
+) -> None:
+    report = write_investigation_report(tmp_path, capsys)
+    output = tmp_path / "investigation.data"
+
+    status = main(
+        [
+            "inspect",
+            str(report),
+            "--report-format",
+            "csv",
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert status == 0
+    capsys.readouterr()
+    assert output.read_text(encoding="utf-8").startswith("kind,key,field,source_rows,details\n")
+
+
 @pytest.mark.parametrize(
     ("arguments", "message"),
     [
@@ -996,6 +1041,7 @@ def test_cli_inspect_sorts_saved_report_by_key(tmp_path: Path, capsys) -> None:
         (["--offset", "-1"], "offset must be a non-negative integer"),
         (["--sort", "priority"], "unknown issue sort"),
         (["--cursor", "broken!"], "invalid result page cursor"),
+        (["--report-format", "pdf"], "unknown report format"),
     ],
 )
 def test_cli_inspect_rejects_invalid_filters(

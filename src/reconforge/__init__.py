@@ -46,7 +46,12 @@ from reconforge.query import (
     query_result,
     result_page_to_dict,
 )
-from reconforge.query_exporters import render_result_page_csv, render_result_page_html
+from reconforge.query_exporters import (
+    render_result_page,
+    render_result_page_csv,
+    render_result_page_html,
+    write_result_page,
+)
 from reconforge.readers import DatasetFormat, DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import load_json_report
@@ -115,6 +120,7 @@ __all__ = [
     "read_dataset",
     "query_result",
     "render_report",
+    "render_result_page",
     "render_result_page_csv",
     "render_result_page_html",
     "result_page_to_dict",
@@ -129,6 +135,7 @@ __all__ = [
     "stored_run_to_dict",
     "infer_report_format",
     "write_report",
+    "write_result_page",
 ]
 
 __version__ = "0.1.0"

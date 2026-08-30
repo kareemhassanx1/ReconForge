@@ -447,9 +447,7 @@ def _build_facets(issues: tuple[ResultIssue, ...]) -> ResultFacets:
     return ResultFacets(by_kind=kinds, by_field=fields, by_side=sides)
 
 
-def _sort_issues(
-    issues: tuple[ResultIssue, ...], sort: IssueSort
-) -> tuple[ResultIssue, ...]:
+def _sort_issues(issues: tuple[ResultIssue, ...], sort: IssueSort) -> tuple[ResultIssue, ...]:
     if sort is IssueSort.NATURAL:
         return issues
     indexed = sorted(

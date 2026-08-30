@@ -26,7 +26,7 @@ added without coupling them to the command-line interface.
 - Detect duplicate keys without silently selecting an arbitrary record.
 - Report fields that exist on only one side of the comparison.
 - Export one canonical report model as stable JSON, analysis-ready CSV, or self-contained HTML.
-- Investigate saved JSON results with deterministic issue filters and pagination.
+- Investigate saved JSON results with deterministic filters, sorting, facets, cursors, and exports.
 - Return a non-zero CLI status when differences are found.
 
 ## Quick start
@@ -325,19 +325,48 @@ reconforge inspect reconciliation.json `
   --field amount `
   --key '["INV-100"]' `
   --row left:42 `
-  --offset 0 `
-  --limit 50
+  --row-range right:40-60 `
+  --side left `
+  --sort key `
+  --limit 50 `
+  --output investigation.html
 ```
 
 Repeat a filter option to match any supplied value within that dimension; different dimensions
 are combined with AND. Exact keys are JSON arrays so composite keys and null components remain
-unambiguous. Row filters use `left:ROW` or `right:ROW`. Results retain a stable order across field
-differences, validation violations, missing records, duplicate keys, and schema-only fields.
+unambiguous. Exact rows use `left:ROW` or `right:ROW`, while inclusive ranges use
+`left:START-END` or `right:START-END`. `--side` selects issues that contain source context from
+one side; schema-only issues have no source rows and therefore do not match a side or row filter.
+
+The default `natural` order retains the report's stable issue order. Use `--sort kind`,
+`--sort key`, `--sort field`, or `--sort source_row` for deterministic investigation-specific
+ordering. The JSON page includes facet counts for kind, field, and source side across the full
+filtered match set, independently of the page limit.
+
+Continue from `page.next_cursor` with the same filters, sort mode, and limit:
+
+```powershell
+reconforge inspect reconciliation.json `
+  --kind field_difference `
+  --limit 50 `
+  --cursor <NEXT_CURSOR>
+```
+
+Cursors are validated against the query that produced them, so malformed cursors or accidental
+changes to filters, ordering, or page size fail explicitly. Offset pagination remains available
+through `--offset` when a cursor is not supplied.
+
+Investigation pages default to JSON on stdout. Select `--report-format csv` or
+`--report-format html`, or use `--output`; `.json`, `.csv`, `.html`, and `.htm` suffixes select the
+format automatically. CSV cells are protected against spreadsheet formula interpretation. HTML
+is self-contained, script-free, escaped, and includes the canonical investigation data. File
+output is replaced atomically so a failed write cannot leave a partially written destination.
 
 The page reports both the original issue count and the filtered match count, plus `has_more` and
-`next_offset`. Filtering never changes the saved report, its reconciliation status, or its original
-summary. Unknown issue kinds, fields not present in the result, wrong key arity, invalid rows, and
-out-of-range page bounds return exit status `2` with an actionable error.
+`next_offset`. Filtering and exporting never change the saved report, its reconciliation status,
+or its original summary. Unknown issue kinds, fields not present in the result, wrong key arity,
+invalid sides or rows, cursor mismatches, and out-of-range page bounds return exit status `2` with
+an actionable error.
 
 ## Input formats
 
