@@ -58,6 +58,12 @@ from reconforge.query_exporters import (
 from reconforge.readers import DatasetFormat, DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import load_json_report
+from reconforge.result_delta import (
+    DeltaIssue,
+    DeltaStatus,
+    ResultDelta,
+    compare_results,
+)
 from reconforge.run_store import (
     RUN_STORE_SCHEMA_VERSION,
     RunInput,
@@ -85,6 +91,8 @@ __all__ = [
     "Dataset",
     "DatasetFormat",
     "DatasetReadOptions",
+    "DeltaIssue",
+    "DeltaStatus",
     "FieldNormalizer",
     "ComparisonPolicy",
     "ComparisonPolicyKind",
@@ -95,6 +103,7 @@ __all__ = [
     "ProjectConfigError",
     "Record",
     "ResultIssue",
+    "ResultDelta",
     "ResultFacets",
     "ResultPage",
     "ResultQuery",
@@ -135,6 +144,7 @@ __all__ = [
     "load_json_report",
     "load_project_config",
     "reconcile",
+    "compare_results",
     "reconcile_batch",
     "reconcile_batch_resumable",
     "pair_fingerprint",
