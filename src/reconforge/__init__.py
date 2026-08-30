@@ -59,6 +59,7 @@ from reconforge.readers import DatasetFormat, DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import load_json_report
 from reconforge.result_delta import (
+    DELTA_QUERY_VERSION,
     DeltaFacets,
     DeltaIssue,
     DeltaPage,
@@ -66,6 +67,8 @@ from reconforge.result_delta import (
     DeltaStatus,
     ResultDelta,
     compare_results,
+    delta_issue_to_dict,
+    delta_page_to_dict,
     filter_delta_issues,
     query_delta,
 )
@@ -96,6 +99,7 @@ __all__ = [
     "Dataset",
     "DatasetFormat",
     "DatasetReadOptions",
+    "DELTA_QUERY_VERSION",
     "DeltaIssue",
     "DeltaFacets",
     "DeltaPage",
@@ -153,6 +157,8 @@ __all__ = [
     "load_project_config",
     "reconcile",
     "compare_results",
+    "delta_issue_to_dict",
+    "delta_page_to_dict",
     "filter_delta_issues",
     "query_delta",
     "reconcile_batch",

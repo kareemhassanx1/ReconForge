@@ -10,6 +10,8 @@ from reconforge.result_delta import (
     DeltaQuery,
     DeltaStatus,
     compare_results,
+    delta_issue_to_dict,
+    delta_page_to_dict,
     filter_delta_issues,
     query_delta,
 )
@@ -219,6 +221,47 @@ def test_delta_facets_cover_filtered_entries_before_pagination() -> None:
     assert page.facets.by_field == {}
     with pytest.raises(TypeError):
         page.facets.by_status[DeltaStatus.MOVED] = 1  # type: ignore[index]
+
+
+def test_delta_page_serialization_is_stable_and_keeps_both_issue_versions() -> None:
+    page = query_delta(
+        compare_results(make_moved_result(0), make_moved_result(2)),
+        DeltaQuery(statuses=frozenset({DeltaStatus.MOVED}), limit=10),
+    )
+
+    payload = delta_page_to_dict(page)
+
+    assert payload == delta_page_to_dict(page)
+    assert payload["delta_query_version"] == 1
+    assert payload["filters"] == {
+        "statuses": ["moved"],
+        "kinds": [],
+        "keys": [],
+        "fields": [],
+    }
+    assert payload["page"] == {
+        "offset": 0,
+        "limit": 10,
+        "baseline_total": 1,
+        "current_total": 1,
+        "total_entries": 1,
+        "matched_entries": 1,
+        "returned_entries": 1,
+        "has_more": False,
+        "next_offset": None,
+    }
+    serialized = payload["issues"][0]
+    assert serialized["status"] == "moved"
+    assert serialized["baseline"]["source_rows"][0]["row_number"] == 2
+    assert serialized["current"]["source_rows"][0]["row_number"] == 4
+    assert delta_issue_to_dict(page.issues[0]) == serialized
+
+
+def test_delta_serialization_helpers_validate_public_inputs() -> None:
+    with pytest.raises(TypeError, match="DeltaPage"):
+        delta_page_to_dict(object())  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="DeltaIssue"):
+        delta_issue_to_dict(object())  # type: ignore[arg-type]
 
 
 def test_delta_public_objects_validate_inconsistent_states() -> None:

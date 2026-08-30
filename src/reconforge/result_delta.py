@@ -10,7 +10,15 @@ from enum import StrEnum
 from types import MappingProxyType
 
 from reconforge.model import ReconciliationResult, RecordKey
-from reconforge.query import IssueKind, ResultIssue, issue_fingerprint, result_issues
+from reconforge.query import (
+    IssueKind,
+    ResultIssue,
+    issue_fingerprint,
+    result_issue_to_dict,
+    result_issues,
+)
+
+DELTA_QUERY_VERSION = 1
 
 
 class DeltaStatus(StrEnum):
@@ -143,6 +151,8 @@ class DeltaPage:
     """A deterministic page over filtered result-delta entries."""
 
     query: DeltaQuery
+    baseline_total: int
+    current_total: int
     total_entries: int
     matched_entries: int
     issues: tuple[DeltaIssue, ...]
@@ -256,11 +266,65 @@ def query_delta(delta: ResultDelta, query: DeltaQuery | None = None) -> DeltaPag
     stop = start + selected.limit
     return DeltaPage(
         query=selected,
+        baseline_total=delta.baseline_total,
+        current_total=delta.current_total,
         total_entries=len(delta.issues),
         matched_entries=len(matched),
         issues=matched[start:stop],
         facets=_build_delta_facets(matched),
     )
+
+
+def delta_page_to_dict(page: DeltaPage) -> dict[str, object]:
+    """Serialize a delta page into a stable JSON-compatible structure."""
+
+    if not isinstance(page, DeltaPage):
+        raise TypeError("page must be a DeltaPage instance")
+    query = page.query
+    return {
+        "delta_query_version": DELTA_QUERY_VERSION,
+        "filters": {
+            "statuses": sorted(status.value for status in query.statuses),
+            "kinds": sorted(kind.value for kind in query.kinds),
+            "keys": [list(key) for key in sorted(query.keys, key=_sortable_key)],
+            "fields": sorted(query.fields),
+        },
+        "page": {
+            "offset": query.offset,
+            "limit": query.limit,
+            "baseline_total": page.baseline_total,
+            "current_total": page.current_total,
+            "total_entries": page.total_entries,
+            "matched_entries": page.matched_entries,
+            "returned_entries": page.returned_entries,
+            "has_more": page.has_more,
+            "next_offset": page.next_offset,
+        },
+        "facets": {
+            "statuses": {
+                status.value: page.facets.by_status[status]
+                for status in sorted(page.facets.by_status, key=lambda item: item.value)
+            },
+            "kinds": {
+                kind.value: page.facets.by_kind[kind]
+                for kind in sorted(page.facets.by_kind, key=lambda item: item.value)
+            },
+            "fields": dict(sorted(page.facets.by_field.items())),
+        },
+        "issues": [delta_issue_to_dict(item) for item in page.issues],
+    }
+
+
+def delta_issue_to_dict(item: DeltaIssue) -> dict[str, object]:
+    """Serialize one delta entry with explicit baseline and current values."""
+
+    if not isinstance(item, DeltaIssue):
+        raise TypeError("item must be a DeltaIssue instance")
+    return {
+        "status": item.status.value,
+        "baseline": None if item.baseline is None else result_issue_to_dict(item.baseline),
+        "current": None if item.current is None else result_issue_to_dict(item.current),
+    }
 
 
 def _matches_delta(item: DeltaIssue, query: DeltaQuery) -> bool:
@@ -280,3 +344,7 @@ def _build_delta_facets(issues: tuple[DeltaIssue, ...]) -> DeltaFacets:
         by_kind=Counter(item.issue.kind for item in issues),
         by_field=Counter(item.issue.field for item in issues if item.issue.field is not None),
     )
+
+
+def _sortable_key(key: RecordKey) -> tuple[str, ...]:
+    return tuple("" if component is None else component for component in key)
