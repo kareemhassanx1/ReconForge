@@ -5,7 +5,7 @@ from pathlib import Path
 
 from reconforge.model import Dataset, Record
 from reconforge.reconcile import ReconciliationConfig, reconcile
-from reconforge.report import result_to_dict, write_json_report
+from reconforge.report import load_json_report, result_to_dict, write_json_report
 from reconforge.validation import RequiredRule
 
 
@@ -58,6 +58,16 @@ def test_json_report_is_written_with_a_trailing_newline(tmp_path: Path) -> None:
     assert content.endswith("\n")
     assert json.loads(content)["status"] == "differences_found"
     assert not destination.with_name("report.json.tmp").exists()
+
+
+def test_json_report_can_be_loaded_back_for_investigation(tmp_path: Path) -> None:
+    destination = tmp_path / "report.json"
+    original = make_result()
+    write_json_report(original, destination)
+
+    loaded = load_json_report(destination)
+
+    assert loaded == original
 
 
 def test_report_separates_validation_only_status_and_context() -> None:

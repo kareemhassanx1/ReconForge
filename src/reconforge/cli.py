@@ -25,10 +25,18 @@ from reconforge.exporters import (
 from reconforge.normalization import FieldNormalizer
 from reconforge.policies import ComparisonPolicy
 from reconforge.project_config import ProjectConfig, load_project_config
+from reconforge.query import (
+    IssueKind,
+    ResultQuery,
+    SourceRow,
+    query_result,
+    result_page_to_dict,
+)
 from reconforge.readers import DatasetFormat, DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import (
     batch_result_to_dict,
+    load_json_report,
     result_to_dict,
 )
 from reconforge.run_store import RunInput, RunStore, StoredRun, stored_run_to_dict
@@ -168,6 +176,38 @@ def build_parser() -> argparse.ArgumentParser:
     history_show = history_commands.add_parser("show", help="show one stored run")
     history_show.add_argument("database", type=Path, help="SQLite history database")
     history_show.add_argument("run_id", type=int, help="positive run identifier")
+
+    inspect = subcommands.add_parser(
+        "inspect",
+        help="filter and paginate issues in a saved JSON reconciliation report",
+    )
+    inspect.add_argument("report", type=Path, help="canonical single-result JSON report")
+    inspect.add_argument(
+        "--kind",
+        action="append",
+        metavar="KIND",
+        help="issue kind to include; repeat for alternatives",
+    )
+    inspect.add_argument(
+        "--key",
+        action="append",
+        metavar="JSON_ARRAY",
+        help='exact record key as a JSON array, for example: ["INV-100"]',
+    )
+    inspect.add_argument(
+        "--field",
+        action="append",
+        metavar="FIELD",
+        help="field to include; repeat for alternatives",
+    )
+    inspect.add_argument(
+        "--row",
+        action="append",
+        metavar="SIDE:ROW",
+        help="source row to include, such as left:42; repeat for alternatives",
+    )
+    inspect.add_argument("--offset", type=int, default=0, help="matching issues to skip")
+    inspect.add_argument("--limit", type=int, default=50, help="issues to return (1-1000)")
     return parser
 
 
@@ -183,6 +223,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_batch(arguments)
     if arguments.command == "history":
         return _run_history(arguments)
+    if arguments.command == "inspect":
+        return _run_inspect(arguments)
     parser.error(f"unsupported command: {arguments.command}")
     return 2
 
@@ -296,6 +338,27 @@ def _run_history(arguments: argparse.Namespace) -> int:
         print(f"reconforge: error: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _run_inspect(arguments: argparse.Namespace) -> int:
+    """Query one saved canonical report without changing its reconciliation outcome."""
+
+    try:
+        result = load_json_report(arguments.report)
+        selected = ResultQuery(
+            kinds=frozenset(IssueKind.named(name) for name in arguments.kind or ()),
+            keys=frozenset(_parse_query_key(value) for value in arguments.key or ()),
+            fields=frozenset(_parse_query_field(value) for value in arguments.field or ()),
+            source_rows=frozenset(_parse_source_row(value) for value in arguments.row or ()),
+            offset=arguments.offset,
+            limit=arguments.limit,
+        )
+        page = query_result(result, selected)
+    except (ReconForgeError, ValueError) as exc:
+        print(f"reconforge: error: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(result_page_to_dict(page), indent=2, ensure_ascii=False))
     return 0
 
 
@@ -451,6 +514,39 @@ def _parse_policies(assignments: Sequence[str]) -> dict[str, ComparisonPolicy]:
             raise ValueError(f"comparison policy for field {field!r} was specified more than once")
         policies[field] = ComparisonPolicy.named(specification)
     return policies
+
+
+def _parse_query_key(value: str) -> tuple[str | None, ...]:
+    try:
+        payload = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid query key {value!r}; expected a JSON array: {exc.msg}") from exc
+    if not isinstance(payload, list) or any(
+        component is not None and not isinstance(component, str) for component in payload
+    ):
+        raise ValueError(f"invalid query key {value!r}; expected a JSON array of strings or null")
+    return tuple(payload)
+
+
+def _parse_query_field(value: str) -> str:
+    field = value.strip()
+    if not field:
+        raise ValueError("query field must be a non-empty string")
+    return field
+
+
+def _parse_source_row(value: str) -> SourceRow:
+    side, separator, row_text = value.partition(":")
+    if not separator:
+        raise ValueError(f"invalid source row {value!r}; expected SIDE:ROW")
+    try:
+        row_number = int(row_text)
+    except ValueError as exc:
+        raise ValueError(f"invalid source row {value!r}; ROW must be an integer") from exc
+    try:
+        return SourceRow(side.strip().lower(), row_number)
+    except ValueError as exc:
+        raise ValueError(f"invalid source row {value!r}: {exc}") from exc
 
 
 def _summary(report: dict[str, object], destination: Path, stored: StoredRun | None = None) -> str:

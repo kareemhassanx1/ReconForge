@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from reconforge.batch import BatchResult
+from reconforge.errors import InputError
 from reconforge.model import (
     DuplicateKey,
     FieldDifference,
@@ -183,6 +184,32 @@ def result_from_dict(payload: Mapping[str, object]) -> ReconciliationResult:
             schema.get("fields_only_right"), "report.schema.fields_only_right"
         ),
     )
+
+
+def load_json_report(path: str | Path) -> ReconciliationResult:
+    """Load a canonical single-result JSON report for read-only investigation."""
+
+    source = Path(path)
+    try:
+        text = source.read_text(encoding="utf-8-sig")
+    except FileNotFoundError as exc:
+        raise InputError(f"reconciliation report does not exist: {source}") from exc
+    except UnicodeError as exc:
+        raise InputError(f"reconciliation report is not valid UTF-8: {source}") from exc
+    except OSError as exc:
+        raise InputError(f"cannot read reconciliation report {source}: {exc}") from exc
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise InputError(
+            f"{source}: invalid report JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}"
+        ) from exc
+    if not isinstance(payload, Mapping):
+        raise InputError(f"{source}: top-level report JSON value must be an object")
+    try:
+        return result_from_dict(payload)
+    except ValueError as exc:
+        raise InputError(f"{source}: invalid reconciliation report: {exc}") from exc
 
 
 def _result_status(result: ReconciliationResult) -> str:

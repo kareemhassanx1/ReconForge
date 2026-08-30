@@ -43,6 +43,7 @@ from reconforge.query import (
 )
 from reconforge.readers import DatasetFormat, DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
+from reconforge.report import load_json_report
 from reconforge.run_store import (
     RUN_STORE_SCHEMA_VERSION,
     RunInput,
@@ -106,6 +107,7 @@ __all__ = [
     "result_page_to_dict",
     "discover_directory_batch",
     "load_batch_manifest",
+    "load_json_report",
     "load_project_config",
     "reconcile",
     "reconcile_batch",

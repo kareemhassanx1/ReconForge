@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from reconforge.cli import main
 
 
@@ -840,3 +842,134 @@ def test_cli_returns_two_for_unknown_report_format(tmp_path: Path, capsys) -> No
 
     assert status == 2
     assert "expected one of: json, csv, html" in capsys.readouterr().err
+
+
+def write_investigation_report(tmp_path: Path, capsys) -> Path:
+    left = write_file(tmp_path, "investigate-left.csv", "id,value\nA,one\nB,two\n")
+    right = write_file(
+        tmp_path,
+        "investigate-right.csv",
+        "id,value\nA,changed\nC,three\n",
+    )
+    report = tmp_path / "investigation.json"
+    status = main(
+        [
+            "compare",
+            str(left),
+            str(right),
+            "--key",
+            "id",
+            "--output",
+            str(report),
+        ]
+    )
+    assert status == 1
+    capsys.readouterr()
+    return report
+
+
+def test_cli_inspect_filters_saved_report_by_kind_key_and_row(tmp_path: Path, capsys) -> None:
+    report = write_investigation_report(tmp_path, capsys)
+    original = report.read_bytes()
+
+    status = main(
+        [
+            "inspect",
+            str(report),
+            "--kind",
+            "missing_from_right",
+            "--key",
+            '["B"]',
+            "--row",
+            "left:3",
+            "--limit",
+            "5",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert payload["page"]["total_issues"] == 3
+    assert payload["page"]["matched_issues"] == 1
+    assert payload["issues"][0]["kind"] == "missing_from_right"
+    assert payload["issues"][0]["key"] == ["B"]
+    assert report.read_bytes() == original
+
+
+def test_cli_inspect_filters_saved_report_by_field(tmp_path: Path, capsys) -> None:
+    report = write_investigation_report(tmp_path, capsys)
+
+    status = main(["inspect", str(report), "--field", "value"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert payload["page"]["matched_issues"] == 1
+    assert payload["issues"][0]["kind"] == "field_difference"
+    assert payload["issues"][0]["field"] == "value"
+
+
+def test_cli_inspect_paginates_in_stable_issue_order(tmp_path: Path, capsys) -> None:
+    report = write_investigation_report(tmp_path, capsys)
+
+    status = main(["inspect", str(report), "--offset", "1", "--limit", "1"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert payload["page"] == {
+        "offset": 1,
+        "limit": 1,
+        "total_issues": 3,
+        "matched_issues": 3,
+        "returned_issues": 1,
+        "has_more": True,
+        "next_offset": 2,
+    }
+    assert payload["issues"][0]["kind"] == "missing_from_left"
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        (["--kind", "money"], "unknown issue kind"),
+        (["--key", "not-json"], "expected a JSON array"),
+        (["--key", '["A", 2]'], "array of strings or null"),
+        (["--key", '["A", "extra"]'], "must contain 1 component"),
+        (["--row", "center:2"], "side must be 'left' or 'right'"),
+        (["--row", "left:zero"], "ROW must be an integer"),
+        (["--field", "unknown"], "do not occur in this result"),
+        (["--limit", "0"], "limit must be an integer from 1 to 1000"),
+        (["--offset", "-1"], "offset must be a non-negative integer"),
+    ],
+)
+def test_cli_inspect_rejects_invalid_filters(
+    tmp_path: Path, capsys, arguments: list[str], message: str
+) -> None:
+    report = write_investigation_report(tmp_path, capsys)
+
+    status = main(["inspect", str(report), *arguments])
+
+    assert status == 2
+    assert message in capsys.readouterr().err
+
+
+def test_cli_inspect_reports_missing_and_malformed_report_files(tmp_path: Path, capsys) -> None:
+    missing = tmp_path / "missing.json"
+    assert main(["inspect", str(missing)]) == 2
+    assert "report does not exist" in capsys.readouterr().err
+
+    malformed = tmp_path / "malformed.json"
+    malformed.write_text('{"report_version":', encoding="utf-8")
+    assert main(["inspect", str(malformed)]) == 2
+    assert "invalid report JSON" in capsys.readouterr().err
+
+
+def test_cli_inspect_rejects_batch_report_with_actionable_version_error(
+    tmp_path: Path, capsys
+) -> None:
+    batch = tmp_path / "batch.json"
+    batch.write_text('{"batch_report_version": 1}', encoding="utf-8")
+
+    status = main(["inspect", str(batch)])
+
+    assert status == 2
+    assert "unsupported report version None; expected 1" in capsys.readouterr().err

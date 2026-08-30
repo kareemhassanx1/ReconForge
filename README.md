@@ -26,6 +26,7 @@ added without coupling them to the command-line interface.
 - Detect duplicate keys without silently selecting an arbitrary record.
 - Report fields that exist on only one side of the comparison.
 - Export one canonical report model as stable JSON, analysis-ready CSV, or self-contained HTML.
+- Investigate saved JSON results with deterministic issue filters and pagination.
 - Return a non-zero CLI status when differences are found.
 
 ## Quick start
@@ -312,6 +313,31 @@ that spreadsheet programs could interpret as formulas are prefixed safely. HTML 
 and no scripts, remote assets, timestamps, or network dependencies; all report values are escaped
 and the canonical JSON remains available in a collapsible section. Both formats are deterministic
 for the same canonical report.
+
+## Result investigation
+
+Use `inspect` to query a saved single-result JSON report without re-running or modifying the
+reconciliation:
+
+```powershell
+reconforge inspect reconciliation.json `
+  --kind field_difference `
+  --field amount `
+  --key '["INV-100"]' `
+  --row left:42 `
+  --offset 0 `
+  --limit 50
+```
+
+Repeat a filter option to match any supplied value within that dimension; different dimensions
+are combined with AND. Exact keys are JSON arrays so composite keys and null components remain
+unambiguous. Row filters use `left:ROW` or `right:ROW`. Results retain a stable order across field
+differences, validation violations, missing records, duplicate keys, and schema-only fields.
+
+The page reports both the original issue count and the filtered match count, plus `has_more` and
+`next_offset`. Filtering never changes the saved report, its reconciliation status, or its original
+summary. Unknown issue kinds, fields not present in the result, wrong key arity, invalid rows, and
+out-of-range page bounds return exit status `2` with an actionable error.
 
 ## Input formats
 
