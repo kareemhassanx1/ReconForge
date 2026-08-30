@@ -11,6 +11,7 @@ from reconforge.result_delta import (
     DeltaStatus,
     compare_results,
     filter_delta_issues,
+    query_delta,
 )
 
 
@@ -154,6 +155,45 @@ def test_delta_filters_validate_public_values() -> None:
         DeltaQuery(fields=frozenset({""}))
     with pytest.raises(TypeError, match="ResultDelta"):
         filter_delta_issues(object())  # type: ignore[arg-type]
+
+
+def test_delta_pagination_preserves_counts_and_deterministic_order() -> None:
+    delta = compare_results(
+        make_result(("A", "B", "D"), ("A", "C", "E")),
+        make_result(("A", "B", "F"), ("A", "C", "G")),
+    )
+
+    page = query_delta(
+        delta,
+        DeltaQuery(
+            statuses=frozenset({DeltaStatus.ADDED, DeltaStatus.RESOLVED}),
+            offset=1,
+            limit=2,
+        ),
+    )
+
+    assert page.total_entries == 7
+    assert page.matched_entries == 4
+    assert page.returned_entries == 2
+    assert page.has_more
+    assert page.next_offset == 3
+    assert [(item.status, item.issue.key) for item in page.issues] == [
+        (DeltaStatus.ADDED, ("F",)),
+        (DeltaStatus.RESOLVED, ("E",)),
+    ]
+
+
+def test_delta_pagination_validates_bounds_and_reports_terminal_pages() -> None:
+    delta = compare_results(make_result(("A", "B"), ("A", "C")), make_result(("A",), ("A",)))
+
+    page = query_delta(delta, DeltaQuery(offset=2, limit=100))
+
+    assert not page.has_more
+    assert page.next_offset is None
+    with pytest.raises(ValueError, match="offset must be a non-negative"):
+        DeltaQuery(offset=-1)
+    with pytest.raises(ValueError, match="limit must be an integer from 1 to 1000"):
+        DeltaQuery(limit=0)
 
 
 def test_delta_public_objects_validate_inconsistent_states() -> None:

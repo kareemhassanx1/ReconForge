@@ -109,6 +109,8 @@ class DeltaQuery:
     kinds: frozenset[IssueKind] = dataclass_field(default_factory=frozenset)
     keys: frozenset[RecordKey] = dataclass_field(default_factory=frozenset)
     fields: frozenset[str] = dataclass_field(default_factory=frozenset)
+    offset: int = 0
+    limit: int = 50
 
     def __post_init__(self) -> None:
         statuses = frozenset(self.statuses)
@@ -124,10 +126,38 @@ class DeltaQuery:
         fields = frozenset(self.fields)
         if any(not isinstance(name, str) or not name for name in fields):
             raise ValueError("delta query fields must be non-empty strings")
+        if type(self.offset) is not int or self.offset < 0:
+            raise ValueError("delta query offset must be a non-negative integer")
+        if type(self.limit) is not int or not 1 <= self.limit <= 1000:
+            raise ValueError("delta query limit must be an integer from 1 to 1000")
         object.__setattr__(self, "statuses", statuses)
         object.__setattr__(self, "kinds", kinds)
         object.__setattr__(self, "keys", keys)
         object.__setattr__(self, "fields", fields)
+
+
+@dataclass(frozen=True, slots=True)
+class DeltaPage:
+    """A deterministic page over filtered result-delta entries."""
+
+    query: DeltaQuery
+    total_entries: int
+    matched_entries: int
+    issues: tuple[DeltaIssue, ...]
+
+    @property
+    def returned_entries(self) -> int:
+        return len(self.issues)
+
+    @property
+    def has_more(self) -> bool:
+        return self.query.offset + self.returned_entries < self.matched_entries
+
+    @property
+    def next_offset(self) -> int | None:
+        if not self.has_more:
+            return None
+        return self.query.offset + self.returned_entries
 
 
 def compare_results(
@@ -198,6 +228,21 @@ def filter_delta_issues(
     if not isinstance(selected, DeltaQuery):
         raise TypeError("query must be a DeltaQuery instance")
     return tuple(item for item in delta.issues if _matches_delta(item, selected))
+
+
+def query_delta(delta: ResultDelta, query: DeltaQuery | None = None) -> DeltaPage:
+    """Filter and paginate one result delta without modifying it."""
+
+    selected = query or DeltaQuery()
+    matched = filter_delta_issues(delta, selected)
+    start = selected.offset
+    stop = start + selected.limit
+    return DeltaPage(
+        query=selected,
+        total_entries=len(delta.issues),
+        matched_entries=len(matched),
+        issues=matched[start:stop],
+    )
 
 
 def _matches_delta(item: DeltaIssue, query: DeltaQuery) -> bool:
