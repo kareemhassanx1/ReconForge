@@ -206,6 +206,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SIDE:ROW",
         help="source row to include, such as left:42; repeat for alternatives",
     )
+    inspect.add_argument(
+        "--side",
+        action="append",
+        metavar="SIDE",
+        help="source side to include: left or right; repeat for alternatives",
+    )
     inspect.add_argument("--offset", type=int, default=0, help="matching issues to skip")
     inspect.add_argument("--limit", type=int, default=50, help="issues to return (1-1000)")
     return parser
@@ -351,6 +357,7 @@ def _run_inspect(arguments: argparse.Namespace) -> int:
             keys=frozenset(_parse_query_key(value) for value in arguments.key or ()),
             fields=frozenset(_parse_query_field(value) for value in arguments.field or ()),
             source_rows=frozenset(_parse_source_row(value) for value in arguments.row or ()),
+            sides=frozenset(_parse_query_side(value) for value in arguments.side or ()),
             offset=arguments.offset,
             limit=arguments.limit,
         )
@@ -547,6 +554,13 @@ def _parse_source_row(value: str) -> SourceRow:
         return SourceRow(side.strip().lower(), row_number)
     except ValueError as exc:
         raise ValueError(f"invalid source row {value!r}: {exc}") from exc
+
+
+def _parse_query_side(value: str) -> str:
+    side = value.strip().lower()
+    if side not in {"left", "right"}:
+        raise ValueError(f"invalid query side {value!r}; expected 'left' or 'right'")
+    return side
 
 
 def _summary(report: dict[str, object], destination: Path, stored: StoredRun | None = None) -> str:

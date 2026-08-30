@@ -98,6 +98,34 @@ def test_filters_use_and_between_dimensions_and_or_within_each_dimension() -> No
     ]
 
 
+def test_side_filter_matches_source_context_and_excludes_schema_only_issues() -> None:
+    result = make_result()
+
+    left = query_result(result, ResultQuery(sides=frozenset({"left"})))
+    right = query_result(result, ResultQuery(sides=frozenset({"right"})))
+    either = query_result(result, ResultQuery(sides=frozenset({"left", "right"})))
+
+    assert [item.kind for item in left.issues] == [
+        IssueKind.FIELD_DIFFERENCE,
+        IssueKind.VALIDATION_VIOLATION,
+        IssueKind.MISSING_FROM_RIGHT,
+        IssueKind.DUPLICATE_KEY_LEFT,
+    ]
+    assert [item.kind for item in right.issues] == [
+        IssueKind.FIELD_DIFFERENCE,
+        IssueKind.MISSING_FROM_LEFT,
+        IssueKind.DUPLICATE_KEY_RIGHT,
+    ]
+    assert [item.kind for item in either.issues] == [
+        IssueKind.FIELD_DIFFERENCE,
+        IssueKind.VALIDATION_VIOLATION,
+        IssueKind.MISSING_FROM_LEFT,
+        IssueKind.MISSING_FROM_RIGHT,
+        IssueKind.DUPLICATE_KEY_LEFT,
+        IssueKind.DUPLICATE_KEY_RIGHT,
+    ]
+
+
 def test_pagination_counts_the_full_result_and_filtered_match_set() -> None:
     page = query_result(make_result(), ResultQuery(offset=2, limit=3))
     payload = result_page_to_dict(page)
@@ -181,6 +209,7 @@ def test_result_specific_invalid_filters_are_actionable(query: ResultQuery, mess
         (lambda: ResultQuery(limit=0), "limit must be an integer from 1 to 1000"),
         (lambda: SourceRow("middle", 2), "side must be 'left' or 'right'"),
         (lambda: SourceRow("left", 0), "row number must be a positive"),
+        (lambda: ResultQuery(sides=frozenset({"center"})), "only 'left' or 'right'"),
     ],
 )
 def test_query_objects_validate_public_bounds(factory, message: str) -> None:

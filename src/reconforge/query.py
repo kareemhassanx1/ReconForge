@@ -57,6 +57,7 @@ class ResultQuery:
     keys: frozenset[RecordKey] = dataclass_field(default_factory=frozenset)
     fields: frozenset[str] = dataclass_field(default_factory=frozenset)
     source_rows: frozenset[SourceRow] = dataclass_field(default_factory=frozenset)
+    sides: frozenset[str] = dataclass_field(default_factory=frozenset)
     offset: int = 0
     limit: int = 50
 
@@ -74,6 +75,12 @@ class ResultQuery:
         source_rows = frozenset(self.source_rows)
         if any(not isinstance(row, SourceRow) for row in source_rows):
             raise TypeError("query source rows must be SourceRow instances")
+        sides = frozenset(self.sides)
+        invalid_sides = sorted(side for side in sides if side not in {"left", "right"})
+        if invalid_sides:
+            raise ValueError(
+                f"query sides must contain only 'left' or 'right'; received: {invalid_sides!r}"
+            )
         if type(self.offset) is not int or self.offset < 0:
             raise ValueError("query offset must be a non-negative integer")
         if type(self.limit) is not int or not 1 <= self.limit <= 1000:
@@ -82,6 +89,7 @@ class ResultQuery:
         object.__setattr__(self, "keys", keys)
         object.__setattr__(self, "fields", fields)
         object.__setattr__(self, "source_rows", source_rows)
+        object.__setattr__(self, "sides", sides)
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +164,7 @@ def result_page_to_dict(page: ResultPage) -> dict[str, object]:
                 {"side": row.side, "row_number": row.row_number}
                 for row in sorted(query.source_rows)
             ],
+            "sides": sorted(query.sides),
         },
         "page": {
             "offset": query.offset,
@@ -205,6 +214,8 @@ def _matches(issue: ResultIssue, query: ResultQuery) -> bool:
     if query.keys and (issue.key is None or issue.key not in query.keys):
         return False
     if query.fields and (issue.field is None or issue.field not in query.fields):
+        return False
+    if query.sides and not any(row.side in query.sides for row in issue.source_rows):
         return False
     return not query.source_rows or bool(set(issue.source_rows) & query.source_rows)
 

@@ -908,6 +908,20 @@ def test_cli_inspect_filters_saved_report_by_field(tmp_path: Path, capsys) -> No
     assert payload["issues"][0]["field"] == "value"
 
 
+def test_cli_inspect_filters_saved_report_by_source_side(tmp_path: Path, capsys) -> None:
+    report = write_investigation_report(tmp_path, capsys)
+
+    status = main(["inspect", str(report), "--side", "RIGHT"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert payload["filters"]["sides"] == ["right"]
+    assert [item["kind"] for item in payload["issues"]] == [
+        "field_difference",
+        "missing_from_left",
+    ]
+
+
 def test_cli_inspect_paginates_in_stable_issue_order(tmp_path: Path, capsys) -> None:
     report = write_investigation_report(tmp_path, capsys)
 
@@ -936,6 +950,7 @@ def test_cli_inspect_paginates_in_stable_issue_order(tmp_path: Path, capsys) -> 
         (["--key", '["A", "extra"]'], "must contain 1 component"),
         (["--row", "center:2"], "side must be 'left' or 'right'"),
         (["--row", "left:zero"], "ROW must be an integer"),
+        (["--side", "center"], "expected 'left' or 'right'"),
         (["--field", "unknown"], "do not occur in this result"),
         (["--limit", "0"], "limit must be an integer from 1 to 1000"),
         (["--offset", "-1"], "offset must be a non-negative integer"),
