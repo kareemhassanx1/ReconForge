@@ -213,7 +213,7 @@ def query_result(result: ReconciliationResult, query: ResultQuery | None = None)
 
     selected = query or ResultQuery()
     _validate_query_scope(result, selected)
-    all_issues = _collect_issues(result)
+    all_issues = result_issues(result)
     matched = tuple(issue for issue in all_issues if _matches(issue, selected))
     matched = _sort_issues(matched, selected.sort)
     start = selected.offset
@@ -252,19 +252,57 @@ def result_page_to_dict(page: ResultPage) -> dict[str, object]:
             "fields": dict(sorted(page.facets.by_field.items())),
             "sides": dict(sorted(page.facets.by_side.items())),
         },
-        "issues": [
-            {
-                "kind": issue.kind.value,
-                "key": None if issue.key is None else _key_to_list(issue.key),
-                "field": issue.field,
-                "source_rows": [
-                    {"side": row.side, "row_number": row.row_number} for row in issue.source_rows
-                ],
-                "details": dict(issue.details),
-            }
-            for issue in page.issues
-        ],
+        "issues": [result_issue_to_dict(issue) for issue in page.issues],
     }
+
+
+def result_issues(result: ReconciliationResult) -> tuple[ResultIssue, ...]:
+    """Expose every result issue in its deterministic natural order."""
+
+    if not isinstance(result, ReconciliationResult):
+        raise TypeError("result must be a ReconciliationResult instance")
+    return _collect_issues(result)
+
+
+def result_issue_to_dict(issue: ResultIssue) -> dict[str, object]:
+    """Serialize one issue with a stable content fingerprint."""
+
+    if not isinstance(issue, ResultIssue):
+        raise TypeError("issue must be a ResultIssue instance")
+    return {
+        "fingerprint": issue_fingerprint(issue),
+        **_issue_identity(issue, include_source_rows=True),
+    }
+
+
+def issue_fingerprint(issue: ResultIssue, *, include_source_rows: bool = True) -> str:
+    """Return a deterministic SHA-256 fingerprint for one issue."""
+
+    if not isinstance(issue, ResultIssue):
+        raise TypeError("issue must be a ResultIssue instance")
+    if type(include_source_rows) is not bool:
+        raise TypeError("include_source_rows must be a boolean")
+    canonical = json.dumps(
+        _issue_identity(issue, include_source_rows=include_source_rows),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _issue_identity(issue: ResultIssue, *, include_source_rows: bool) -> dict[str, object]:
+    identity: dict[str, object] = {
+        "kind": issue.kind.value,
+        "key": None if issue.key is None else _key_to_list(issue.key),
+        "field": issue.field,
+        "details": dict(issue.details),
+    }
+    if include_source_rows:
+        identity["source_rows"] = [
+            {"side": row.side, "row_number": row.row_number} for row in issue.source_rows
+        ]
+    return identity
 
 
 def next_page_cursor(page: ResultPage) -> str | None:

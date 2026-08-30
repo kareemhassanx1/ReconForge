@@ -42,8 +42,11 @@ from reconforge.query import (
     SourceRow,
     SourceRowRange,
     apply_page_cursor,
+    issue_fingerprint,
     next_page_cursor,
     query_result,
+    result_issue_to_dict,
+    result_issues,
     result_page_to_dict,
 )
 from reconforge.query_exporters import (
@@ -109,6 +112,7 @@ __all__ = [
     "SourceRow",
     "SourceRowRange",
     "apply_page_cursor",
+    "issue_fingerprint",
     "next_page_cursor",
     "TextPatternRule",
     "ValidationRule",
@@ -124,6 +128,8 @@ __all__ = [
     "render_result_page_csv",
     "render_result_page_html",
     "result_page_to_dict",
+    "result_issue_to_dict",
+    "result_issues",
     "discover_directory_batch",
     "load_batch_manifest",
     "load_json_report",

@@ -11,8 +11,11 @@ from reconforge.query import (
     SourceRow,
     SourceRowRange,
     apply_page_cursor,
+    issue_fingerprint,
     next_page_cursor,
     query_result,
+    result_issue_to_dict,
+    result_issues,
     result_page_to_dict,
 )
 from reconforge.reconcile import ReconciliationConfig, reconcile
@@ -340,18 +343,49 @@ def test_serialization_is_stable_and_keeps_source_context() -> None:
     assert result_page_to_dict(page) == result_page_to_dict(page)
     assert result_page_to_dict(page)["issues"] == [
         {
+            "fingerprint": issue_fingerprint(page.issues[0]),
             "kind": "field_difference",
             "key": ["A"],
             "field": "value",
+            "details": {"left_value": "one", "right_value": "changed"},
             "source_rows": [
                 {"side": "left", "row_number": 2},
                 {"side": "right", "row_number": 2},
             ],
-            "details": {"left_value": "one", "right_value": "changed"},
         }
     ]
     with pytest.raises(TypeError):
         page.issues[0].details["changed"] = True  # type: ignore[index]
+
+
+def test_issue_fingerprints_are_stable_content_sensitive_and_public() -> None:
+    issues = result_issues(make_result())
+    difference = issues[0]
+    moved = type(difference)(
+        kind=difference.kind,
+        key=difference.key,
+        field=difference.field,
+        source_rows=(SourceRow("left", 20), SourceRow("right", 20)),
+        details=difference.details,
+    )
+
+    assert result_issues(make_result()) == issues
+    assert len(issue_fingerprint(difference)) == 64
+    assert issue_fingerprint(difference) == issue_fingerprint(issues[0])
+    assert issue_fingerprint(difference) != issue_fingerprint(moved)
+    assert issue_fingerprint(difference, include_source_rows=False) == issue_fingerprint(
+        moved, include_source_rows=False
+    )
+    assert result_issue_to_dict(difference)["fingerprint"] == issue_fingerprint(difference)
+
+
+def test_issue_fingerprint_helpers_validate_public_inputs() -> None:
+    with pytest.raises(TypeError, match="ReconciliationResult"):
+        result_issues(object())  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="ResultIssue"):
+        issue_fingerprint(object())  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="must be a boolean"):
+        issue_fingerprint(result_issues(make_result())[0], include_source_rows=1)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
