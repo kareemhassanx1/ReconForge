@@ -6,6 +6,7 @@ from reconforge.errors import ConfigurationError
 from reconforge.model import Dataset, Record
 from reconforge.query import (
     IssueKind,
+    IssueSort,
     ResultQuery,
     SourceRow,
     SourceRowRange,
@@ -156,6 +157,72 @@ def test_source_row_ranges_are_inclusive_and_combine_with_exact_rows() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("sort", "expected"),
+    [
+        (
+            IssueSort.KIND,
+            [
+                IssueKind.DUPLICATE_KEY_LEFT,
+                IssueKind.DUPLICATE_KEY_RIGHT,
+                IssueKind.FIELD_DIFFERENCE,
+                IssueKind.FIELD_ONLY_LEFT,
+                IssueKind.FIELD_ONLY_RIGHT,
+                IssueKind.MISSING_FROM_LEFT,
+                IssueKind.MISSING_FROM_RIGHT,
+                IssueKind.VALIDATION_VIOLATION,
+            ],
+        ),
+        (
+            IssueSort.KEY,
+            [
+                IssueKind.FIELD_DIFFERENCE,
+                IssueKind.MISSING_FROM_RIGHT,
+                IssueKind.MISSING_FROM_LEFT,
+                IssueKind.DUPLICATE_KEY_LEFT,
+                IssueKind.DUPLICATE_KEY_RIGHT,
+                IssueKind.VALIDATION_VIOLATION,
+                IssueKind.FIELD_ONLY_LEFT,
+                IssueKind.FIELD_ONLY_RIGHT,
+            ],
+        ),
+        (
+            IssueSort.FIELD,
+            [
+                IssueKind.FIELD_ONLY_LEFT,
+                IssueKind.FIELD_ONLY_RIGHT,
+                IssueKind.VALIDATION_VIOLATION,
+                IssueKind.FIELD_DIFFERENCE,
+                IssueKind.MISSING_FROM_LEFT,
+                IssueKind.MISSING_FROM_RIGHT,
+                IssueKind.DUPLICATE_KEY_LEFT,
+                IssueKind.DUPLICATE_KEY_RIGHT,
+            ],
+        ),
+        (
+            IssueSort.SOURCE_ROW,
+            [
+                IssueKind.FIELD_DIFFERENCE,
+                IssueKind.VALIDATION_VIOLATION,
+                IssueKind.MISSING_FROM_RIGHT,
+                IssueKind.DUPLICATE_KEY_LEFT,
+                IssueKind.MISSING_FROM_LEFT,
+                IssueKind.DUPLICATE_KEY_RIGHT,
+                IssueKind.FIELD_ONLY_LEFT,
+                IssueKind.FIELD_ONLY_RIGHT,
+            ],
+        ),
+    ],
+)
+def test_sort_modes_are_deterministic_and_keep_natural_tie_order(
+    sort: IssueSort, expected: list[IssueKind]
+) -> None:
+    page = query_result(make_result(), ResultQuery(sort=sort))
+
+    assert [issue.kind for issue in page.issues] == expected
+    assert result_page_to_dict(page)["filters"]["sort"] == sort.value
+
+
 def test_pagination_counts_the_full_result_and_filtered_match_set() -> None:
     page = query_result(make_result(), ResultQuery(offset=2, limit=3))
     payload = result_page_to_dict(page)
@@ -253,3 +320,10 @@ def test_query_objects_validate_public_bounds(factory, message: str) -> None:
 def test_unknown_issue_kind_lists_every_supported_choice() -> None:
     with pytest.raises(ValueError, match="unknown issue kind.*field_difference"):
         IssueKind.named("amount")
+
+
+def test_sort_mode_requires_public_enum_and_lists_supported_choices() -> None:
+    with pytest.raises(TypeError, match="sort must be an IssueSort"):
+        ResultQuery(sort="field")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="unknown issue sort.*source_row"):
+        IssueSort.named("priority")

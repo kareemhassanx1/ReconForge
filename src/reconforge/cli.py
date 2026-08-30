@@ -27,6 +27,7 @@ from reconforge.policies import ComparisonPolicy
 from reconforge.project_config import ProjectConfig, load_project_config
 from reconforge.query import (
     IssueKind,
+    IssueSort,
     ResultQuery,
     SourceRow,
     SourceRowRange,
@@ -221,6 +222,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inspect.add_argument("--offset", type=int, default=0, help="matching issues to skip")
     inspect.add_argument("--limit", type=int, default=50, help="issues to return (1-1000)")
+    inspect.add_argument(
+        "--sort",
+        default="natural",
+        metavar="MODE",
+        help="issue order: natural, kind, key, field, or source_row",
+    )
     return parser
 
 
@@ -368,6 +375,7 @@ def _run_inspect(arguments: argparse.Namespace) -> int:
                 _parse_source_row_range(value) for value in arguments.row_range or ()
             ),
             sides=frozenset(_parse_query_side(value) for value in arguments.side or ()),
+            sort=IssueSort.named(arguments.sort),
             offset=arguments.offset,
             limit=arguments.limit,
         )

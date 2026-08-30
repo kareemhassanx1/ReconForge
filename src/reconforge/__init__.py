@@ -34,6 +34,7 @@ from reconforge.project_config import (
 )
 from reconforge.query import (
     IssueKind,
+    IssueSort,
     ResultIssue,
     ResultPage,
     ResultQuery,
@@ -102,6 +103,7 @@ __all__ = [
     "ValidationRuleKind",
     "ValidationViolation",
     "IssueKind",
+    "IssueSort",
     "read_csv_dataset",
     "read_dataset",
     "query_result",

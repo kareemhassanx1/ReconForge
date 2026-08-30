@@ -35,6 +35,26 @@ class IssueKind(StrEnum):
             raise ValueError(f"unknown issue kind {name!r}; expected one of: {choices}") from exc
 
 
+class IssueSort(StrEnum):
+    """Deterministic orderings available to result investigation queries."""
+
+    NATURAL = "natural"
+    KIND = "kind"
+    KEY = "key"
+    FIELD = "field"
+    SOURCE_ROW = "source_row"
+
+    @classmethod
+    def named(cls, name: str) -> IssueSort:
+        """Resolve a public sort mode with a deterministic error message."""
+
+        try:
+            return cls(name.strip().lower())
+        except ValueError as exc:
+            choices = ", ".join(item.value for item in cls)
+            raise ValueError(f"unknown issue sort {name!r}; expected one of: {choices}") from exc
+
+
 @dataclass(frozen=True, slots=True, order=True)
 class SourceRow:
     """One side and source-row location used by issue filters."""
@@ -83,6 +103,7 @@ class ResultQuery:
     source_rows: frozenset[SourceRow] = dataclass_field(default_factory=frozenset)
     source_row_ranges: tuple[SourceRowRange, ...] = ()
     sides: frozenset[str] = dataclass_field(default_factory=frozenset)
+    sort: IssueSort = IssueSort.NATURAL
     offset: int = 0
     limit: int = 50
 
@@ -109,6 +130,8 @@ class ResultQuery:
             raise ValueError(
                 f"query sides must contain only 'left' or 'right'; received: {invalid_sides!r}"
             )
+        if not isinstance(self.sort, IssueSort):
+            raise TypeError("query sort must be an IssueSort instance")
         if type(self.offset) is not int or self.offset < 0:
             raise ValueError("query offset must be a non-negative integer")
         if type(self.limit) is not int or not 1 <= self.limit <= 1000:
@@ -169,6 +192,7 @@ def query_result(result: ReconciliationResult, query: ResultQuery | None = None)
     _validate_query_scope(result, selected)
     all_issues = _collect_issues(result)
     matched = tuple(issue for issue in all_issues if _matches(issue, selected))
+    matched = _sort_issues(matched, selected.sort)
     start = selected.offset
     stop = start + selected.limit
     return ResultPage(
@@ -198,6 +222,7 @@ def result_page_to_dict(page: ResultPage) -> dict[str, object]:
                 for row_range in sorted(query.source_row_ranges)
             ],
             "sides": sorted(query.sides),
+            "sort": query.sort.value,
         },
         "page": {
             "offset": query.offset,
@@ -330,6 +355,41 @@ def _collect_issues(result: ReconciliationResult) -> tuple[ResultIssue, ...]:
         ResultIssue(IssueKind.FIELD_ONLY_RIGHT, field=name) for name in result.fields_only_right
     )
     return tuple(issues)
+
+
+def _sort_issues(
+    issues: tuple[ResultIssue, ...], sort: IssueSort
+) -> tuple[ResultIssue, ...]:
+    if sort is IssueSort.NATURAL:
+        return issues
+    indexed = sorted(
+        enumerate(issues),
+        key=lambda item: _issue_sort_key(item[1], item[0], sort),
+    )
+    return tuple(issue for _, issue in indexed)
+
+
+def _issue_sort_key(issue: ResultIssue, natural_index: int, sort: IssueSort) -> tuple[object, ...]:
+    if sort is IssueSort.KIND:
+        return (issue.kind.value, natural_index)
+    if sort is IssueSort.KEY:
+        return (
+            issue.key is None,
+            () if issue.key is None else _sortable_key(issue.key),
+            natural_index,
+        )
+    if sort is IssueSort.FIELD:
+        return (
+            issue.field is None,
+            "" if issue.field is None else issue.field.casefold(),
+            "" if issue.field is None else issue.field,
+            natural_index,
+        )
+    return (
+        not issue.source_rows,
+        min(issue.source_rows) if issue.source_rows else SourceRow("right", 1),
+        natural_index,
+    )
 
 
 def _key_to_list(key: RecordKey) -> list[CellValue]:

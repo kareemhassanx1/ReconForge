@@ -954,6 +954,17 @@ def test_cli_inspect_paginates_in_stable_issue_order(tmp_path: Path, capsys) -> 
     assert payload["issues"][0]["kind"] == "missing_from_left"
 
 
+def test_cli_inspect_sorts_saved_report_by_key(tmp_path: Path, capsys) -> None:
+    report = write_investigation_report(tmp_path, capsys)
+
+    status = main(["inspect", str(report), "--sort", "key"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert payload["filters"]["sort"] == "key"
+    assert [item["key"] for item in payload["issues"]] == [["A"], ["B"], ["C"]]
+
+
 @pytest.mark.parametrize(
     ("arguments", "message"),
     [
@@ -970,6 +981,7 @@ def test_cli_inspect_paginates_in_stable_issue_order(tmp_path: Path, capsys) -> 
         (["--field", "unknown"], "do not occur in this result"),
         (["--limit", "0"], "limit must be an integer from 1 to 1000"),
         (["--offset", "-1"], "offset must be a non-negative integer"),
+        (["--sort", "priority"], "unknown issue sort"),
     ],
 )
 def test_cli_inspect_rejects_invalid_filters(
