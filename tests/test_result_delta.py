@@ -3,9 +3,15 @@ from __future__ import annotations
 import pytest
 
 from reconforge.model import Dataset, Record
-from reconforge.query import result_issues
+from reconforge.query import IssueKind, result_issues
 from reconforge.reconcile import ReconciliationConfig, reconcile
-from reconforge.result_delta import DeltaIssue, DeltaStatus, compare_results
+from reconforge.result_delta import (
+    DeltaIssue,
+    DeltaQuery,
+    DeltaStatus,
+    compare_results,
+    filter_delta_issues,
+)
 
 
 def make_result(left_ids: tuple[str, ...], right_ids: tuple[str, ...]):
@@ -108,6 +114,46 @@ def test_compare_results_never_mutates_source_results() -> None:
 
     assert result_issues(baseline) == baseline_issues
     assert result_issues(current) == current_issues
+
+
+def test_delta_filters_use_and_between_dimensions_and_or_within_them() -> None:
+    delta = compare_results(
+        make_result(("A", "B", "D"), ("A", "C", "E")),
+        make_result(("A", "B", "F"), ("A", "C", "G")),
+    )
+
+    selected = filter_delta_issues(
+        delta,
+        DeltaQuery(
+            statuses=frozenset({DeltaStatus.ADDED, DeltaStatus.RESOLVED}),
+            kinds=frozenset({IssueKind.MISSING_FROM_LEFT}),
+            keys=frozenset({("E",), ("G",)}),
+        ),
+    )
+    field_differences = filter_delta_issues(
+        delta,
+        DeltaQuery(fields=frozenset({"value"})),
+    )
+
+    assert [(item.status, item.issue.key) for item in selected] == [
+        (DeltaStatus.ADDED, ("G",)),
+        (DeltaStatus.RESOLVED, ("E",)),
+    ]
+    assert [item.status for item in field_differences] == [DeltaStatus.UNCHANGED]
+    assert filter_delta_issues(delta) == delta.issues
+
+
+def test_delta_filters_validate_public_values() -> None:
+    with pytest.raises(ValueError, match="unknown delta status.*unchanged"):
+        DeltaStatus.named("regressed")
+    with pytest.raises(TypeError, match="DeltaStatus"):
+        DeltaQuery(statuses=frozenset({"added"}))  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="IssueKind"):
+        DeltaQuery(kinds=frozenset({"field_difference"}))  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="non-empty strings"):
+        DeltaQuery(fields=frozenset({""}))
+    with pytest.raises(TypeError, match="ResultDelta"):
+        filter_delta_issues(object())  # type: ignore[arg-type]
 
 
 def test_delta_public_objects_validate_inconsistent_states() -> None:

@@ -60,9 +60,11 @@ from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import load_json_report
 from reconforge.result_delta import (
     DeltaIssue,
+    DeltaQuery,
     DeltaStatus,
     ResultDelta,
     compare_results,
+    filter_delta_issues,
 )
 from reconforge.run_store import (
     RUN_STORE_SCHEMA_VERSION,
@@ -92,6 +94,7 @@ __all__ = [
     "DatasetFormat",
     "DatasetReadOptions",
     "DeltaIssue",
+    "DeltaQuery",
     "DeltaStatus",
     "FieldNormalizer",
     "ComparisonPolicy",
@@ -145,6 +148,7 @@ __all__ = [
     "load_project_config",
     "reconcile",
     "compare_results",
+    "filter_delta_issues",
     "reconcile_batch",
     "reconcile_batch_resumable",
     "pair_fingerprint",

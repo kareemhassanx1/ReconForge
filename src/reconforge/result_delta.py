@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from enum import StrEnum
 
-from reconforge.model import ReconciliationResult
-from reconforge.query import ResultIssue, issue_fingerprint, result_issues
+from reconforge.model import ReconciliationResult, RecordKey
+from reconforge.query import IssueKind, ResultIssue, issue_fingerprint, result_issues
 
 
 class DeltaStatus(StrEnum):
@@ -17,6 +18,16 @@ class DeltaStatus(StrEnum):
     MOVED = "moved"
     RESOLVED = "resolved"
     UNCHANGED = "unchanged"
+
+    @classmethod
+    def named(cls, name: str) -> DeltaStatus:
+        """Resolve a public delta status with a deterministic error message."""
+
+        try:
+            return cls(name.strip().lower())
+        except ValueError as exc:
+            choices = ", ".join(item.value for item in cls)
+            raise ValueError(f"unknown delta status {name!r}; expected one of: {choices}") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +101,35 @@ class ResultDelta:
         return len(self.added) + len(self.moved) + len(self.resolved)
 
 
+@dataclass(frozen=True, slots=True)
+class DeltaQuery:
+    """Immutable filters for selecting entries from a result delta."""
+
+    statuses: frozenset[DeltaStatus] = dataclass_field(default_factory=frozenset)
+    kinds: frozenset[IssueKind] = dataclass_field(default_factory=frozenset)
+    keys: frozenset[RecordKey] = dataclass_field(default_factory=frozenset)
+    fields: frozenset[str] = dataclass_field(default_factory=frozenset)
+
+    def __post_init__(self) -> None:
+        statuses = frozenset(self.statuses)
+        if any(not isinstance(status, DeltaStatus) for status in statuses):
+            raise TypeError("delta query statuses must be DeltaStatus instances")
+        kinds = frozenset(self.kinds)
+        if any(not isinstance(kind, IssueKind) for kind in kinds):
+            raise TypeError("delta query kinds must be IssueKind instances")
+        keys = frozenset(tuple(key) for key in self.keys)
+        for key in keys:
+            if any(component is not None and not isinstance(component, str) for component in key):
+                raise TypeError("delta query key components must be strings or null")
+        fields = frozenset(self.fields)
+        if any(not isinstance(name, str) or not name for name in fields):
+            raise ValueError("delta query fields must be non-empty strings")
+        object.__setattr__(self, "statuses", statuses)
+        object.__setattr__(self, "kinds", kinds)
+        object.__setattr__(self, "keys", keys)
+        object.__setattr__(self, "fields", fields)
+
+
 def compare_results(
     baseline: ReconciliationResult,
     current: ReconciliationResult,
@@ -144,3 +184,28 @@ def compare_results(
         current_total=len(current_issues),
         issues=tuple(delta_issues),
     )
+
+
+def filter_delta_issues(
+    delta: ResultDelta,
+    query: DeltaQuery | None = None,
+) -> tuple[DeltaIssue, ...]:
+    """Filter delta entries with AND across dimensions and OR within each one."""
+
+    if not isinstance(delta, ResultDelta):
+        raise TypeError("delta must be a ResultDelta instance")
+    selected = query or DeltaQuery()
+    if not isinstance(selected, DeltaQuery):
+        raise TypeError("query must be a DeltaQuery instance")
+    return tuple(item for item in delta.issues if _matches_delta(item, selected))
+
+
+def _matches_delta(item: DeltaIssue, query: DeltaQuery) -> bool:
+    issue = item.issue
+    if query.statuses and item.status not in query.statuses:
+        return False
+    if query.kinds and issue.kind not in query.kinds:
+        return False
+    if query.keys and (issue.key is None or issue.key not in query.keys):
+        return False
+    return not query.fields or (issue.field is not None and issue.field in query.fields)
