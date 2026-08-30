@@ -29,6 +29,7 @@ from reconforge.query import (
     IssueKind,
     ResultQuery,
     SourceRow,
+    SourceRowRange,
     query_result,
     result_page_to_dict,
 )
@@ -212,6 +213,12 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SIDE",
         help="source side to include: left or right; repeat for alternatives",
     )
+    inspect.add_argument(
+        "--row-range",
+        action="append",
+        metavar="SIDE:START-END",
+        help="inclusive source row range, such as left:10-25; repeat for alternatives",
+    )
     inspect.add_argument("--offset", type=int, default=0, help="matching issues to skip")
     inspect.add_argument("--limit", type=int, default=50, help="issues to return (1-1000)")
     return parser
@@ -357,6 +364,9 @@ def _run_inspect(arguments: argparse.Namespace) -> int:
             keys=frozenset(_parse_query_key(value) for value in arguments.key or ()),
             fields=frozenset(_parse_query_field(value) for value in arguments.field or ()),
             source_rows=frozenset(_parse_source_row(value) for value in arguments.row or ()),
+            source_row_ranges=tuple(
+                _parse_source_row_range(value) for value in arguments.row_range or ()
+            ),
             sides=frozenset(_parse_query_side(value) for value in arguments.side or ()),
             offset=arguments.offset,
             limit=arguments.limit,
@@ -561,6 +571,24 @@ def _parse_query_side(value: str) -> str:
     if side not in {"left", "right"}:
         raise ValueError(f"invalid query side {value!r}; expected 'left' or 'right'")
     return side
+
+
+def _parse_source_row_range(value: str) -> SourceRowRange:
+    side, separator, bounds = value.partition(":")
+    start_text, range_separator, end_text = bounds.partition("-")
+    if not separator or not range_separator:
+        raise ValueError(f"invalid source row range {value!r}; expected SIDE:START-END")
+    try:
+        start = int(start_text)
+        end = int(end_text)
+    except ValueError as exc:
+        raise ValueError(
+            f"invalid source row range {value!r}; START and END must be integers"
+        ) from exc
+    try:
+        return SourceRowRange(side.strip().lower(), start, end)
+    except ValueError as exc:
+        raise ValueError(f"invalid source row range {value!r}: {exc}") from exc
 
 
 def _summary(report: dict[str, object], destination: Path, stored: StoredRun | None = None) -> str:

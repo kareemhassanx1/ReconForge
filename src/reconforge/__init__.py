@@ -38,6 +38,7 @@ from reconforge.query import (
     ResultPage,
     ResultQuery,
     SourceRow,
+    SourceRowRange,
     query_result,
     result_page_to_dict,
 )
@@ -95,6 +96,7 @@ __all__ = [
     "RunStoreError",
     "StoredRun",
     "SourceRow",
+    "SourceRowRange",
     "TextPatternRule",
     "ValidationRule",
     "ValidationRuleKind",

@@ -922,6 +922,19 @@ def test_cli_inspect_filters_saved_report_by_source_side(tmp_path: Path, capsys)
     ]
 
 
+def test_cli_inspect_filters_saved_report_by_source_row_range(tmp_path: Path, capsys) -> None:
+    report = write_investigation_report(tmp_path, capsys)
+
+    status = main(["inspect", str(report), "--row-range", "right:3-9"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert payload["filters"]["source_row_ranges"] == [
+        {"side": "right", "start": 3, "end": 9}
+    ]
+    assert [item["kind"] for item in payload["issues"]] == ["missing_from_left"]
+
+
 def test_cli_inspect_paginates_in_stable_issue_order(tmp_path: Path, capsys) -> None:
     report = write_investigation_report(tmp_path, capsys)
 
@@ -951,6 +964,9 @@ def test_cli_inspect_paginates_in_stable_issue_order(tmp_path: Path, capsys) -> 
         (["--row", "center:2"], "side must be 'left' or 'right'"),
         (["--row", "left:zero"], "ROW must be an integer"),
         (["--side", "center"], "expected 'left' or 'right'"),
+        (["--row-range", "left:2"], "expected SIDE:START-END"),
+        (["--row-range", "left:first-3"], "START and END must be integers"),
+        (["--row-range", "right:4-2"], "start must not exceed end"),
         (["--field", "unknown"], "do not occur in this result"),
         (["--limit", "0"], "limit must be an integer from 1 to 1000"),
         (["--offset", "-1"], "offset must be a non-negative integer"),

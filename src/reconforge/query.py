@@ -49,6 +49,30 @@ class SourceRow:
             raise ValueError("source row number must be a positive integer")
 
 
+@dataclass(frozen=True, slots=True, order=True)
+class SourceRowRange:
+    """Inclusive source-row interval used by issue filters."""
+
+    side: str
+    start: int
+    end: int
+
+    def __post_init__(self) -> None:
+        if self.side not in {"left", "right"}:
+            raise ValueError("source row range side must be 'left' or 'right'")
+        if type(self.start) is not int or self.start < 1:
+            raise ValueError("source row range start must be a positive integer")
+        if type(self.end) is not int or self.end < 1:
+            raise ValueError("source row range end must be a positive integer")
+        if self.start > self.end:
+            raise ValueError("source row range start must not exceed end")
+
+    def contains(self, row: SourceRow) -> bool:
+        """Return whether a source row belongs to this inclusive interval."""
+
+        return row.side == self.side and self.start <= row.row_number <= self.end
+
+
 @dataclass(frozen=True, slots=True)
 class ResultQuery:
     """Immutable filters and page bounds for one result investigation."""
@@ -57,6 +81,7 @@ class ResultQuery:
     keys: frozenset[RecordKey] = dataclass_field(default_factory=frozenset)
     fields: frozenset[str] = dataclass_field(default_factory=frozenset)
     source_rows: frozenset[SourceRow] = dataclass_field(default_factory=frozenset)
+    source_row_ranges: tuple[SourceRowRange, ...] = ()
     sides: frozenset[str] = dataclass_field(default_factory=frozenset)
     offset: int = 0
     limit: int = 50
@@ -75,6 +100,9 @@ class ResultQuery:
         source_rows = frozenset(self.source_rows)
         if any(not isinstance(row, SourceRow) for row in source_rows):
             raise TypeError("query source rows must be SourceRow instances")
+        source_row_ranges = tuple(self.source_row_ranges)
+        if any(not isinstance(row_range, SourceRowRange) for row_range in source_row_ranges):
+            raise TypeError("query source row ranges must be SourceRowRange instances")
         sides = frozenset(self.sides)
         invalid_sides = sorted(side for side in sides if side not in {"left", "right"})
         if invalid_sides:
@@ -89,6 +117,7 @@ class ResultQuery:
         object.__setattr__(self, "keys", keys)
         object.__setattr__(self, "fields", fields)
         object.__setattr__(self, "source_rows", source_rows)
+        object.__setattr__(self, "source_row_ranges", source_row_ranges)
         object.__setattr__(self, "sides", sides)
 
 
@@ -164,6 +193,10 @@ def result_page_to_dict(page: ResultPage) -> dict[str, object]:
                 {"side": row.side, "row_number": row.row_number}
                 for row in sorted(query.source_rows)
             ],
+            "source_row_ranges": [
+                {"side": row_range.side, "start": row_range.start, "end": row_range.end}
+                for row_range in sorted(query.source_row_ranges)
+            ],
             "sides": sorted(query.sides),
         },
         "page": {
@@ -217,7 +250,13 @@ def _matches(issue: ResultIssue, query: ResultQuery) -> bool:
         return False
     if query.sides and not any(row.side in query.sides for row in issue.source_rows):
         return False
-    return not query.source_rows or bool(set(issue.source_rows) & query.source_rows)
+    if not query.source_rows and not query.source_row_ranges:
+        return True
+    return any(
+        row in query.source_rows
+        or any(row_range.contains(row) for row_range in query.source_row_ranges)
+        for row in issue.source_rows
+    )
 
 
 def _collect_issues(result: ReconciliationResult) -> tuple[ResultIssue, ...]:

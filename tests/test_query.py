@@ -8,6 +8,7 @@ from reconforge.query import (
     IssueKind,
     ResultQuery,
     SourceRow,
+    SourceRowRange,
     query_result,
     result_page_to_dict,
 )
@@ -126,6 +127,35 @@ def test_side_filter_matches_source_context_and_excludes_schema_only_issues() ->
     ]
 
 
+def test_source_row_ranges_are_inclusive_and_combine_with_exact_rows() -> None:
+    result = make_result()
+
+    ranged = query_result(
+        result,
+        ResultQuery(source_row_ranges=(SourceRowRange("right", 3, 4),)),
+    )
+    combined = query_result(
+        result,
+        ResultQuery(
+            source_rows=frozenset({SourceRow("left", 3)}),
+            source_row_ranges=(SourceRowRange("right", 4, 5),),
+        ),
+    )
+
+    assert [item.kind for item in ranged.issues] == [
+        IssueKind.MISSING_FROM_LEFT,
+        IssueKind.DUPLICATE_KEY_RIGHT,
+    ]
+    assert [item.kind for item in combined.issues] == [
+        IssueKind.VALIDATION_VIOLATION,
+        IssueKind.MISSING_FROM_RIGHT,
+        IssueKind.DUPLICATE_KEY_RIGHT,
+    ]
+    assert result_page_to_dict(ranged)["filters"]["source_row_ranges"] == [
+        {"side": "right", "start": 3, "end": 4}
+    ]
+
+
 def test_pagination_counts_the_full_result_and_filtered_match_set() -> None:
     page = query_result(make_result(), ResultQuery(offset=2, limit=3))
     payload = result_page_to_dict(page)
@@ -210,6 +240,9 @@ def test_result_specific_invalid_filters_are_actionable(query: ResultQuery, mess
         (lambda: SourceRow("middle", 2), "side must be 'left' or 'right'"),
         (lambda: SourceRow("left", 0), "row number must be a positive"),
         (lambda: ResultQuery(sides=frozenset({"center"})), "only 'left' or 'right'"),
+        (lambda: SourceRowRange("middle", 1, 2), "side must be 'left' or 'right'"),
+        (lambda: SourceRowRange("left", 0, 2), "start must be a positive"),
+        (lambda: SourceRowRange("left", 3, 2), "start must not exceed end"),
     ],
 )
 def test_query_objects_validate_public_bounds(factory, message: str) -> None:
