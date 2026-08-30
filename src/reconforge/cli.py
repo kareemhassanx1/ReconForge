@@ -31,6 +31,7 @@ from reconforge.query import (
     ResultQuery,
     SourceRow,
     SourceRowRange,
+    apply_page_cursor,
     query_result,
     result_page_to_dict,
 )
@@ -228,6 +229,10 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="MODE",
         help="issue order: natural, kind, key, field, or source_row",
     )
+    inspect.add_argument(
+        "--cursor",
+        help="opaque next-page cursor returned by an earlier identical query",
+    )
     return parser
 
 
@@ -379,6 +384,10 @@ def _run_inspect(arguments: argparse.Namespace) -> int:
             offset=arguments.offset,
             limit=arguments.limit,
         )
+        if arguments.cursor:
+            if arguments.offset:
+                raise ValueError("--cursor cannot be combined with a non-zero --offset")
+            selected = apply_page_cursor(selected, arguments.cursor)
         page = query_result(result, selected)
     except (ReconForgeError, ValueError) as exc:
         print(f"reconforge: error: {exc}", file=sys.stderr)

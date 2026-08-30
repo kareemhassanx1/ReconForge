@@ -10,6 +10,8 @@ from reconforge.query import (
     ResultQuery,
     SourceRow,
     SourceRowRange,
+    apply_page_cursor,
+    next_page_cursor,
     query_result,
     result_page_to_dict,
 )
@@ -226,6 +228,7 @@ def test_sort_modes_are_deterministic_and_keep_natural_tie_order(
 def test_pagination_counts_the_full_result_and_filtered_match_set() -> None:
     page = query_result(make_result(), ResultQuery(offset=2, limit=3))
     payload = result_page_to_dict(page)
+    cursor = payload["page"].pop("next_cursor")
 
     assert [item.kind for item in page.issues] == [
         IssueKind.MISSING_FROM_LEFT,
@@ -245,6 +248,37 @@ def test_pagination_counts_the_full_result_and_filtered_match_set() -> None:
         "has_more": True,
         "next_offset": 5,
     }
+    assert cursor == next_page_cursor(page)
+    assert isinstance(cursor, str)
+
+
+def test_page_cursor_resumes_an_identical_query_and_is_terminal_on_last_page() -> None:
+    query = ResultQuery(
+        kinds=frozenset({IssueKind.MISSING_FROM_LEFT, IssueKind.MISSING_FROM_RIGHT}),
+        limit=1,
+    )
+    first = query_result(make_result(), query)
+    cursor = next_page_cursor(first)
+
+    assert cursor is not None
+    second = query_result(make_result(), apply_page_cursor(query, cursor))
+    assert [issue.kind for issue in first.issues] == [IssueKind.MISSING_FROM_LEFT]
+    assert [issue.kind for issue in second.issues] == [IssueKind.MISSING_FROM_RIGHT]
+    assert next_page_cursor(second) is None
+    assert result_page_to_dict(second)["page"]["next_cursor"] is None
+
+
+def test_page_cursor_rejects_malformed_tokens_and_changed_query_settings() -> None:
+    query = ResultQuery(limit=2)
+    cursor = next_page_cursor(query_result(make_result(), query))
+
+    assert cursor is not None
+    with pytest.raises(ValueError, match="invalid result page cursor"):
+        apply_page_cursor(query, "not a cursor!")
+    with pytest.raises(ValueError, match="does not match the current query"):
+        apply_page_cursor(ResultQuery(limit=3), cursor)
+    with pytest.raises(ValueError, match="does not match the current query"):
+        apply_page_cursor(ResultQuery(limit=2, sort=IssueSort.KEY), cursor)
 
 
 def test_query_never_changes_the_underlying_reconciliation_result() -> None:

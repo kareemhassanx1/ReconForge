@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
+import hmac
+import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
 from enum import StrEnum
 from types import MappingProxyType
 
 from reconforge.errors import ConfigurationError
 from reconforge.model import CellValue, ReconciliationResult, RecordKey
+
+_CURSOR_VERSION = 1
 
 
 class IssueKind(StrEnum):
@@ -209,21 +216,7 @@ def result_page_to_dict(page: ResultPage) -> dict[str, object]:
     query = page.query
     return {
         "query_version": 1,
-        "filters": {
-            "kinds": sorted(kind.value for kind in query.kinds),
-            "keys": [_key_to_list(key) for key in sorted(query.keys, key=_sortable_key)],
-            "fields": sorted(query.fields),
-            "source_rows": [
-                {"side": row.side, "row_number": row.row_number}
-                for row in sorted(query.source_rows)
-            ],
-            "source_row_ranges": [
-                {"side": row_range.side, "start": row_range.start, "end": row_range.end}
-                for row_range in sorted(query.source_row_ranges)
-            ],
-            "sides": sorted(query.sides),
-            "sort": query.sort.value,
-        },
+        "filters": _query_filters_to_dict(query),
         "page": {
             "offset": query.offset,
             "limit": query.limit,
@@ -232,6 +225,7 @@ def result_page_to_dict(page: ResultPage) -> dict[str, object]:
             "returned_issues": page.returned_issues,
             "has_more": page.has_more,
             "next_offset": page.next_offset,
+            "next_cursor": next_page_cursor(page),
         },
         "issues": [
             {
@@ -246,6 +240,68 @@ def result_page_to_dict(page: ResultPage) -> dict[str, object]:
             for issue in page.issues
         ],
     }
+
+
+def next_page_cursor(page: ResultPage) -> str | None:
+    """Create an opaque cursor for the next page, if one exists."""
+
+    if page.next_offset is None:
+        return None
+    payload = {
+        "version": _CURSOR_VERSION,
+        "offset": page.next_offset,
+        "query": _query_fingerprint(page.query),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(encoded).decode("ascii").rstrip("=")
+
+
+def apply_page_cursor(query: ResultQuery, cursor: str) -> ResultQuery:
+    """Apply a validated page cursor to an otherwise identical query."""
+
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        decoded = base64.b64decode(cursor + padding, altchars=b"-_", validate=True)
+        payload = json.loads(decoded.decode("utf-8"))
+    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError("invalid result page cursor") from exc
+    if not isinstance(payload, dict) or payload.get("version") != _CURSOR_VERSION:
+        raise ValueError("unsupported result page cursor version")
+    offset = payload.get("offset")
+    if type(offset) is not int or offset < 0:
+        raise ValueError("invalid result page cursor offset")
+    fingerprint = payload.get("query")
+    if not isinstance(fingerprint, str) or not hmac.compare_digest(
+        fingerprint, _query_fingerprint(query)
+    ):
+        raise ValueError("result page cursor does not match the current query")
+    return replace(query, offset=offset)
+
+
+def _query_filters_to_dict(query: ResultQuery) -> dict[str, object]:
+    return {
+        "kinds": sorted(kind.value for kind in query.kinds),
+        "keys": [_key_to_list(key) for key in sorted(query.keys, key=_sortable_key)],
+        "fields": sorted(query.fields),
+        "source_rows": [
+            {"side": row.side, "row_number": row.row_number} for row in sorted(query.source_rows)
+        ],
+        "source_row_ranges": [
+            {"side": row_range.side, "start": row_range.start, "end": row_range.end}
+            for row_range in sorted(query.source_row_ranges)
+        ],
+        "sides": sorted(query.sides),
+        "sort": query.sort.value,
+    }
+
+
+def _query_fingerprint(query: ResultQuery) -> str:
+    identity = {
+        "filters": _query_filters_to_dict(query),
+        "limit": query.limit,
+    }
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _validate_query_scope(result: ReconciliationResult, query: ResultQuery) -> None:

@@ -40,6 +40,8 @@ from reconforge.query import (
     ResultQuery,
     SourceRow,
     SourceRowRange,
+    apply_page_cursor,
+    next_page_cursor,
     query_result,
     result_page_to_dict,
 )
@@ -98,6 +100,8 @@ __all__ = [
     "StoredRun",
     "SourceRow",
     "SourceRowRange",
+    "apply_page_cursor",
+    "next_page_cursor",
     "TextPatternRule",
     "ValidationRule",
     "ValidationRuleKind",

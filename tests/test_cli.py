@@ -941,6 +941,7 @@ def test_cli_inspect_paginates_in_stable_issue_order(tmp_path: Path, capsys) -> 
     status = main(["inspect", str(report), "--offset", "1", "--limit", "1"])
 
     payload = json.loads(capsys.readouterr().out)
+    cursor = payload["page"].pop("next_cursor")
     assert status == 0
     assert payload["page"] == {
         "offset": 1,
@@ -951,7 +952,14 @@ def test_cli_inspect_paginates_in_stable_issue_order(tmp_path: Path, capsys) -> 
         "has_more": True,
         "next_offset": 2,
     }
+    assert isinstance(cursor, str)
     assert payload["issues"][0]["kind"] == "missing_from_left"
+
+    status = main(["inspect", str(report), "--limit", "1", "--cursor", cursor])
+    next_payload = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert next_payload["page"]["offset"] == 2
+    assert next_payload["issues"][0]["kind"] == "missing_from_right"
 
 
 def test_cli_inspect_sorts_saved_report_by_key(tmp_path: Path, capsys) -> None:
@@ -982,6 +990,7 @@ def test_cli_inspect_sorts_saved_report_by_key(tmp_path: Path, capsys) -> None:
         (["--limit", "0"], "limit must be an integer from 1 to 1000"),
         (["--offset", "-1"], "offset must be a non-negative integer"),
         (["--sort", "priority"], "unknown issue sort"),
+        (["--cursor", "broken!"], "invalid result page cursor"),
     ],
 )
 def test_cli_inspect_rejects_invalid_filters(
