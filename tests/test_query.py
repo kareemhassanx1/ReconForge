@@ -1,0 +1,193 @@
+from __future__ import annotations
+
+import pytest
+
+from reconforge.errors import ConfigurationError
+from reconforge.model import Dataset, Record
+from reconforge.query import (
+    IssueKind,
+    ResultQuery,
+    SourceRow,
+    query_result,
+    result_page_to_dict,
+)
+from reconforge.reconcile import ReconciliationConfig, reconcile
+from reconforge.report import result_to_dict
+from reconforge.validation import RequiredRule
+
+
+def make_result():
+    left = Dataset(
+        "left.csv",
+        ("id", "value", "status", "left_only"),
+        (
+            Record("left.csv", 2, {"id": "A", "value": "one", "status": "ok", "left_only": "L"}),
+            Record("left.csv", 3, {"id": "B", "value": "two", "status": None, "left_only": "L"}),
+            Record("left.csv", 4, {"id": "D", "value": "three", "status": "ok", "left_only": "L"}),
+            Record("left.csv", 5, {"id": "D", "value": "four", "status": "ok", "left_only": "L"}),
+        ),
+    )
+    right = Dataset(
+        "right.csv",
+        ("id", "value", "status", "right_only"),
+        (
+            Record(
+                "right.csv", 2, {"id": "A", "value": "changed", "status": "ok", "right_only": "R"}
+            ),
+            Record("right.csv", 3, {"id": "C", "value": "two", "status": "ok", "right_only": "R"}),
+            Record(
+                "right.csv", 4, {"id": "E", "value": "three", "status": "ok", "right_only": "R"}
+            ),
+            Record("right.csv", 5, {"id": "E", "value": "four", "status": "ok", "right_only": "R"}),
+        ),
+    )
+    return reconcile(
+        left,
+        right,
+        ReconciliationConfig(
+            key_fields=("id",),
+            validation_rules={"status": (RequiredRule(),)},
+        ),
+    )
+
+
+def test_default_query_exposes_every_issue_in_stable_kind_order() -> None:
+    page = query_result(make_result())
+
+    assert page.total_issues == 8
+    assert page.matched_issues == 8
+    assert page.returned_issues == 8
+    assert not page.has_more
+    assert page.next_offset is None
+    assert [issue.kind for issue in page.issues] == [
+        IssueKind.FIELD_DIFFERENCE,
+        IssueKind.VALIDATION_VIOLATION,
+        IssueKind.MISSING_FROM_LEFT,
+        IssueKind.MISSING_FROM_RIGHT,
+        IssueKind.DUPLICATE_KEY_LEFT,
+        IssueKind.DUPLICATE_KEY_RIGHT,
+        IssueKind.FIELD_ONLY_LEFT,
+        IssueKind.FIELD_ONLY_RIGHT,
+    ]
+
+
+def test_filters_use_and_between_dimensions_and_or_within_each_dimension() -> None:
+    result = make_result()
+
+    by_kind_and_key = query_result(
+        result,
+        ResultQuery(
+            kinds=frozenset({IssueKind.FIELD_DIFFERENCE, IssueKind.MISSING_FROM_LEFT}),
+            keys=frozenset({("A",), ("C",)}),
+        ),
+    )
+    by_field = query_result(result, ResultQuery(fields=frozenset({"status"})))
+    by_row = query_result(
+        result,
+        ResultQuery(source_rows=frozenset({SourceRow("left", 3)})),
+    )
+
+    assert [(item.kind, item.key) for item in by_kind_and_key.issues] == [
+        (IssueKind.FIELD_DIFFERENCE, ("A",)),
+        (IssueKind.MISSING_FROM_LEFT, ("C",)),
+    ]
+    assert [item.kind for item in by_field.issues] == [IssueKind.VALIDATION_VIOLATION]
+    assert [item.kind for item in by_row.issues] == [
+        IssueKind.VALIDATION_VIOLATION,
+        IssueKind.MISSING_FROM_RIGHT,
+    ]
+
+
+def test_pagination_counts_the_full_result_and_filtered_match_set() -> None:
+    page = query_result(make_result(), ResultQuery(offset=2, limit=3))
+    payload = result_page_to_dict(page)
+
+    assert [item.kind for item in page.issues] == [
+        IssueKind.MISSING_FROM_LEFT,
+        IssueKind.MISSING_FROM_RIGHT,
+        IssueKind.DUPLICATE_KEY_LEFT,
+    ]
+    assert page.total_issues == 8
+    assert page.matched_issues == 8
+    assert page.has_more
+    assert page.next_offset == 5
+    assert payload["page"] == {
+        "offset": 2,
+        "limit": 3,
+        "total_issues": 8,
+        "matched_issues": 8,
+        "returned_issues": 3,
+        "has_more": True,
+        "next_offset": 5,
+    }
+
+
+def test_query_never_changes_the_underlying_reconciliation_result() -> None:
+    result = make_result()
+    before = result_to_dict(result)
+
+    query_result(
+        result,
+        ResultQuery(
+            kinds=frozenset({IssueKind.FIELD_DIFFERENCE}),
+            offset=10,
+            limit=2,
+        ),
+    )
+
+    assert result_to_dict(result) == before
+    assert result.issue_count == 8
+
+
+def test_serialization_is_stable_and_keeps_source_context() -> None:
+    page = query_result(
+        make_result(),
+        ResultQuery(kinds=frozenset({IssueKind.FIELD_DIFFERENCE})),
+    )
+
+    assert result_page_to_dict(page) == result_page_to_dict(page)
+    assert result_page_to_dict(page)["issues"] == [
+        {
+            "kind": "field_difference",
+            "key": ["A"],
+            "field": "value",
+            "source_rows": [
+                {"side": "left", "row_number": 2},
+                {"side": "right", "row_number": 2},
+            ],
+            "details": {"left_value": "one", "right_value": "changed"},
+        }
+    ]
+    with pytest.raises(TypeError):
+        page.issues[0].details["changed"] = True  # type: ignore[index]
+
+
+@pytest.mark.parametrize(
+    ("query", "message"),
+    [
+        (ResultQuery(keys=frozenset({("A", "extra")})), "must contain 1 component"),
+        (ResultQuery(fields=frozenset({"unknown"})), "do not occur in this result"),
+    ],
+)
+def test_result_specific_invalid_filters_are_actionable(query: ResultQuery, message: str) -> None:
+    with pytest.raises(ConfigurationError, match=message):
+        query_result(make_result(), query)
+
+
+@pytest.mark.parametrize(
+    ("factory", "message"),
+    [
+        (lambda: ResultQuery(offset=-1), "offset must be a non-negative"),
+        (lambda: ResultQuery(limit=0), "limit must be an integer from 1 to 1000"),
+        (lambda: SourceRow("middle", 2), "side must be 'left' or 'right'"),
+        (lambda: SourceRow("left", 0), "row number must be a positive"),
+    ],
+)
+def test_query_objects_validate_public_bounds(factory, message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        factory()
+
+
+def test_unknown_issue_kind_lists_every_supported_choice() -> None:
+    with pytest.raises(ValueError, match="unknown issue kind.*field_difference"):
+        IssueKind.named("amount")

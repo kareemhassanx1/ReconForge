@@ -32,6 +32,15 @@ from reconforge.project_config import (
     ProjectConfigError,
     load_project_config,
 )
+from reconforge.query import (
+    IssueKind,
+    ResultIssue,
+    ResultPage,
+    ResultQuery,
+    SourceRow,
+    query_result,
+    result_page_to_dict,
+)
 from reconforge.readers import DatasetFormat, DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.run_store import (
@@ -70,6 +79,9 @@ __all__ = [
     "ProjectConfig",
     "ProjectConfigError",
     "Record",
+    "ResultIssue",
+    "ResultPage",
+    "ResultQuery",
     "ReportFormat",
     "ReconciliationConfig",
     "ReconciliationResult",
@@ -81,13 +93,17 @@ __all__ = [
     "RunStore",
     "RunStoreError",
     "StoredRun",
+    "SourceRow",
     "TextPatternRule",
     "ValidationRule",
     "ValidationRuleKind",
     "ValidationViolation",
+    "IssueKind",
     "read_csv_dataset",
     "read_dataset",
+    "query_result",
     "render_report",
+    "result_page_to_dict",
     "discover_directory_batch",
     "load_batch_manifest",
     "load_project_config",
