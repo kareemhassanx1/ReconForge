@@ -6,7 +6,10 @@ import csv
 import html
 import io
 import json
+from contextlib import suppress
+from pathlib import Path
 
+from reconforge.exporters import ReportFormat
 from reconforge.query import ResultIssue, issue_fingerprint
 from reconforge.result_delta import DeltaIssue, DeltaPage, delta_page_to_dict
 
@@ -22,6 +25,40 @@ _CSV_COLUMNS = (
     "baseline_details",
     "current_details",
 )
+
+
+def render_delta_page(page: DeltaPage, format: ReportFormat | str) -> str:
+    """Render a result-delta page in a supported deterministic format."""
+
+    selected = ReportFormat.named(format) if isinstance(format, str) else format
+    if not isinstance(selected, ReportFormat):
+        raise TypeError("delta page format must be a ReportFormat or string")
+    if selected is ReportFormat.JSON:
+        return json.dumps(delta_page_to_dict(page), indent=2, ensure_ascii=False) + "\n"
+    if selected is ReportFormat.CSV:
+        return render_delta_page_csv(page)
+    return render_delta_page_html(page)
+
+
+def write_delta_page(
+    page: DeltaPage,
+    destination: str | Path,
+    format: ReportFormat | str,
+) -> Path:
+    """Render and atomically write one result-delta page."""
+
+    path = Path(destination)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    payload = render_delta_page(page, format)
+    try:
+        temporary.write_text(payload, encoding="utf-8", newline="\n")
+        temporary.replace(path)
+    except OSError:
+        with suppress(OSError):
+            temporary.unlink(missing_ok=True)
+        raise
+    return path.resolve()
 
 
 def render_delta_page_csv(page: DeltaPage) -> str:

@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import csv
 import io
+import json
+from pathlib import Path
 
 import pytest
 from test_result_delta import make_moved_result
 
-from reconforge.result_delta import compare_results, query_delta
-from reconforge.result_delta_exporters import render_delta_page_csv, render_delta_page_html
+from reconforge.result_delta import compare_results, delta_page_to_dict, query_delta
+from reconforge.result_delta_exporters import (
+    render_delta_page,
+    render_delta_page_csv,
+    render_delta_page_html,
+    write_delta_page,
+)
 
 
 def test_delta_csv_is_deterministic_structural_and_formula_safe() -> None:
@@ -68,3 +75,32 @@ def test_delta_html_is_self_contained_deterministic_and_escapes_values() -> None
 def test_delta_html_validates_public_input() -> None:
     with pytest.raises(TypeError, match="must be a DeltaPage"):
         render_delta_page_html(object())  # type: ignore[arg-type]
+
+
+def test_delta_renderer_dispatches_json_and_rejects_unknown_formats() -> None:
+    page = query_delta(compare_results(make_moved_result(0), make_moved_result(2)))
+
+    rendered = render_delta_page(page, "json")
+
+    assert json.loads(rendered) == delta_page_to_dict(page)
+    assert rendered.endswith("\n")
+    assert render_delta_page(page, "csv") == render_delta_page_csv(page)
+    assert render_delta_page(page, "html") == render_delta_page_html(page)
+    with pytest.raises(ValueError, match="expected one of: json, csv, html"):
+        render_delta_page(page, "pdf")
+
+
+def test_write_delta_page_is_atomic_and_preserves_unicode(tmp_path: Path) -> None:
+    page = query_delta(
+        compare_results(
+            make_moved_result(0, "قيمة"),
+            make_moved_result(2, "قيمة"),
+        )
+    )
+    destination = tmp_path / "nested" / "delta.html"
+
+    returned = write_delta_page(page, destination, "html")
+
+    assert returned == destination.resolve()
+    assert "قيمة" in destination.read_text(encoding="utf-8")
+    assert not destination.with_name(f".{destination.name}.tmp").exists()

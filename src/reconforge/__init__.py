@@ -72,7 +72,12 @@ from reconforge.result_delta import (
     filter_delta_issues,
     query_delta,
 )
-from reconforge.result_delta_exporters import render_delta_page_csv, render_delta_page_html
+from reconforge.result_delta_exporters import (
+    render_delta_page,
+    render_delta_page_csv,
+    render_delta_page_html,
+    write_delta_page,
+)
 from reconforge.run_store import (
     RUN_STORE_SCHEMA_VERSION,
     RunInput,
@@ -146,6 +151,7 @@ __all__ = [
     "read_dataset",
     "query_result",
     "render_report",
+    "render_delta_page",
     "render_delta_page_csv",
     "render_delta_page_html",
     "render_result_page",
@@ -170,6 +176,7 @@ __all__ = [
     "stored_run_to_dict",
     "infer_report_format",
     "write_report",
+    "write_delta_page",
     "write_result_page",
 ]
 
