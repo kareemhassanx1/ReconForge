@@ -46,6 +46,7 @@ from reconforge.query import (
     query_result,
     result_page_to_dict,
 )
+from reconforge.query_exporters import render_result_page_csv
 from reconforge.readers import DatasetFormat, DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import load_json_report
@@ -114,6 +115,7 @@ __all__ = [
     "read_dataset",
     "query_result",
     "render_report",
+    "render_result_page_csv",
     "result_page_to_dict",
     "discover_directory_batch",
     "load_batch_manifest",
