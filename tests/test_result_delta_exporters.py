@@ -7,7 +7,7 @@ import pytest
 from test_result_delta import make_moved_result
 
 from reconforge.result_delta import compare_results, query_delta
-from reconforge.result_delta_exporters import render_delta_page_csv
+from reconforge.result_delta_exporters import render_delta_page_csv, render_delta_page_html
 
 
 def test_delta_csv_is_deterministic_structural_and_formula_safe() -> None:
@@ -42,3 +42,29 @@ def test_delta_csv_is_deterministic_structural_and_formula_safe() -> None:
 def test_delta_csv_validates_public_input() -> None:
     with pytest.raises(TypeError, match="must be a DeltaPage"):
         render_delta_page_csv(object())  # type: ignore[arg-type]
+
+
+def test_delta_html_is_self_contained_deterministic_and_escapes_values() -> None:
+    page = query_delta(
+        compare_results(
+            make_moved_result(0, "<script>alert(1)</script>"),
+            make_moved_result(2, "<script>alert(1)</script>"),
+        )
+    )
+
+    rendered = render_delta_page_html(page)
+
+    assert rendered == render_delta_page_html(page)
+    assert rendered.startswith('<!doctype html>\n<html lang="en">')
+    assert "<style>" in rendered
+    assert "<script>" not in rendered
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in rendered
+    assert "Baseline issues</dt><dd>1" in rendered
+    assert "Current issues</dt><dd>1" in rendered
+    assert "https://" not in rendered
+    assert "generated_at" not in rendered
+
+
+def test_delta_html_validates_public_input() -> None:
+    with pytest.raises(TypeError, match="must be a DeltaPage"):
+        render_delta_page_html(object())  # type: ignore[arg-type]

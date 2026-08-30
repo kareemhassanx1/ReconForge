@@ -72,7 +72,7 @@ from reconforge.result_delta import (
     filter_delta_issues,
     query_delta,
 )
-from reconforge.result_delta_exporters import render_delta_page_csv
+from reconforge.result_delta_exporters import render_delta_page_csv, render_delta_page_html
 from reconforge.run_store import (
     RUN_STORE_SCHEMA_VERSION,
     RunInput,
@@ -147,6 +147,7 @@ __all__ = [
     "query_result",
     "render_report",
     "render_delta_page_csv",
+    "render_delta_page_html",
     "render_result_page",
     "render_result_page_csv",
     "render_result_page_html",
