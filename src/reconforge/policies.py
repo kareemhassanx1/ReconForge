@@ -182,7 +182,7 @@ def _resolve_kind(kind: ComparisonPolicyKind | str) -> ComparisonPolicyKind:
 
 
 def _resolve_tolerance(value: Decimal | str | int) -> Decimal:
-    if isinstance(value, bool) or not isinstance(value, (Decimal, str, int)):
+    if isinstance(value, bool) or not isinstance(value, Decimal | str | int):
         raise TypeError("decimal tolerance must be a Decimal, string, or integer")
     try:
         tolerance = Decimal(value.strip() if isinstance(value, str) else value)

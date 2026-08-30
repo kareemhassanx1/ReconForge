@@ -207,7 +207,7 @@ def _optional_decimal_bound(
 ) -> Decimal | None:
     if value is None:
         return None
-    if isinstance(value, bool) or not isinstance(value, (Decimal, str, int)):
+    if isinstance(value, bool) or not isinstance(value, Decimal | str | int):
         raise TypeError(f"numeric-range {label} must be a Decimal, string, or integer")
     try:
         parsed = Decimal(value.strip() if isinstance(value, str) else value)

@@ -309,7 +309,7 @@ def _compact_json(value: object) -> str:
 def _safe_csv_cell(value: object) -> object:
     if value is None:
         return ""
-    if isinstance(value, (dict, list, tuple)):
+    if isinstance(value, dict | list | tuple):
         value = _compact_json(value)
     if isinstance(value, str) and value.startswith(("=", "+", "-", "@", "\t", "\r")):
         return f"'{value}"
