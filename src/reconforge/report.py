@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Mapping
@@ -149,6 +150,21 @@ def result_to_dict(result: ReconciliationResult) -> dict[str, Any]:
             ],
         },
     }
+
+
+def result_fingerprint(result: ReconciliationResult) -> str:
+    """Return a deterministic semantic checksum for one reconciliation result."""
+
+    if not isinstance(result, ReconciliationResult):
+        raise TypeError("result must be a ReconciliationResult instance")
+    canonical = json.dumps(
+        result_to_dict(result),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
 
 
 def result_from_dict(payload: Mapping[str, object]) -> ReconciliationResult:

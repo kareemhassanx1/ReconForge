@@ -57,7 +57,7 @@ from reconforge.query_exporters import (
 )
 from reconforge.readers import DatasetFormat, DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
-from reconforge.report import load_json_report
+from reconforge.report import load_json_report, result_fingerprint
 from reconforge.result_delta import (
     DELTA_QUERY_VERSION,
     DeltaFacets,
@@ -160,6 +160,7 @@ __all__ = [
     "result_page_to_dict",
     "result_issue_to_dict",
     "result_issues",
+    "result_fingerprint",
     "discover_directory_batch",
     "load_batch_manifest",
     "load_json_report",

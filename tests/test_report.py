@@ -9,7 +9,13 @@ import pytest
 from reconforge.errors import InputError
 from reconforge.model import Dataset, Record
 from reconforge.reconcile import ReconciliationConfig, reconcile
-from reconforge.report import load_json_report, result_from_dict, result_to_dict, write_json_report
+from reconforge.report import (
+    load_json_report,
+    result_fingerprint,
+    result_from_dict,
+    result_to_dict,
+    write_json_report,
+)
 from reconforge.validation import RequiredRule
 
 
@@ -537,6 +543,56 @@ def test_report_rejects_status_that_does_not_match_content(status: object) -> No
 
     with pytest.raises(ValueError, match="report.status"):
         result_from_dict(report)
+
+
+def test_result_fingerprint_is_stable_and_content_sensitive() -> None:
+    original = make_status_result(difference=True, violation=False)
+    same = make_status_result(difference=True, violation=False)
+    changed = make_status_result(difference=False, violation=False)
+
+    fingerprint = result_fingerprint(original)
+
+    assert fingerprint == result_fingerprint(same)
+    assert fingerprint != result_fingerprint(changed)
+    assert fingerprint.startswith("sha256:")
+    assert len(fingerprint) == len("sha256:") + 64
+
+
+def test_result_fingerprint_ignores_json_layout_key_order_and_bom(tmp_path: Path) -> None:
+    result = make_result()
+    report = result_to_dict(result)
+    compact = tmp_path / "compact.json"
+    pretty = tmp_path / "pretty.json"
+    compact.write_text(
+        "\ufeff" + json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    pretty.write_text(json.dumps(report, ensure_ascii=False, indent=4), encoding="utf-8")
+
+    assert result_fingerprint(load_json_report(compact)) == result_fingerprint(
+        load_json_report(pretty)
+    )
+
+
+def test_result_fingerprint_handles_unicode_deterministically() -> None:
+    left = Dataset(
+        "يسار.csv",
+        ("id", "value"),
+        (Record("يسار.csv", 2, {"id": "أ", "value": "قديم"}),),
+    )
+    right = Dataset(
+        "يمين.csv",
+        ("id", "value"),
+        (Record("يمين.csv", 2, {"id": "أ", "value": "جديد"}),),
+    )
+    result = reconcile(left, right, ReconciliationConfig(key_fields=("id",)))
+
+    assert result_fingerprint(result) == result_fingerprint(result)
+
+
+def test_result_fingerprint_validates_public_input() -> None:
+    with pytest.raises(TypeError, match="ReconciliationResult"):
+        result_fingerprint(object())  # type: ignore[arg-type]
 
 
 def test_report_separates_validation_only_status_and_context() -> None:
