@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+from reconforge.errors import InputError
 from reconforge.model import Dataset, Record
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import load_json_report, result_to_dict, write_json_report
@@ -68,6 +71,31 @@ def test_json_report_can_be_loaded_back_for_investigation(tmp_path: Path) -> Non
     loaded = load_json_report(destination)
 
     assert loaded == original
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        '{"report_version":1,"report_version":1}',
+        '{"report_version":1,"summary":{"issues":1,"issues":2}}',
+    ],
+)
+def test_json_report_rejects_duplicate_object_keys(tmp_path: Path, content: str) -> None:
+    source = tmp_path / "duplicate.json"
+    source.write_text(content, encoding="utf-8")
+
+    with pytest.raises(InputError, match="duplicate object key"):
+        load_json_report(source)
+
+
+def test_json_report_loader_keeps_bom_compatibility(tmp_path: Path) -> None:
+    source = tmp_path / "bom.json"
+    source.write_text(
+        "\ufeff" + json.dumps(result_to_dict(make_result()), ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    assert load_json_report(source) == make_result()
 
 
 def test_report_separates_validation_only_status_and_context() -> None:

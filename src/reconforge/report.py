@@ -199,7 +199,9 @@ def load_json_report(path: str | Path) -> ReconciliationResult:
     except OSError as exc:
         raise InputError(f"cannot read reconciliation report {source}: {exc}") from exc
     try:
-        payload = json.loads(text)
+        payload = json.loads(text, object_pairs_hook=_unique_object)
+    except _DuplicateObjectKeyError as exc:
+        raise InputError(f"{source}: invalid report JSON: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise InputError(
             f"{source}: invalid report JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}"
@@ -309,6 +311,19 @@ def _object(value: object, location: str) -> dict[str, object]:
     if any(not isinstance(key, str) for key in value):
         raise ValueError(f"{location} keys must be strings")
     return dict(value)
+
+
+class _DuplicateObjectKeyError(ValueError):
+    """Internal signal for ambiguous JSON objects."""
+
+
+def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise _DuplicateObjectKeyError(f"duplicate object key {key!r}")
+        payload[key] = value
+    return payload
 
 
 def _array(value: object, location: str) -> list[object]:
