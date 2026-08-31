@@ -1189,3 +1189,57 @@ def test_cli_diff_rejects_invalid_options(
 
     assert status == 2
     assert message in capsys.readouterr().err
+
+
+def test_cli_verify_reports_semantic_fingerprint_without_modifying_input(
+    tmp_path: Path, capsys
+) -> None:
+    report = write_investigation_report(tmp_path, capsys)
+    original = report.read_bytes()
+
+    status = main(["verify", str(report)])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert payload["verification_version"] == 1
+    assert payload["valid"] is True
+    assert payload["report_version"] == 1
+    assert payload["status"] == "differences_found"
+    assert payload["summary"]["issues"] == 3
+    assert payload["fingerprint"].startswith("sha256:")
+    assert payload["expected_fingerprint"] is None
+    assert payload["matches_expected"] is None
+    assert report.read_bytes() == original
+
+
+def test_cli_verify_checks_expected_fingerprint_with_distinct_mismatch_status(
+    tmp_path: Path, capsys
+) -> None:
+    report = write_investigation_report(tmp_path, capsys)
+    assert main(["verify", str(report)]) == 0
+    fingerprint = json.loads(capsys.readouterr().out)["fingerprint"]
+
+    assert main(["verify", str(report), "--expect-fingerprint", fingerprint]) == 0
+    matched = json.loads(capsys.readouterr().out)
+    assert matched["matches_expected"] is True
+
+    different = "sha256:" + "0" * 64
+    assert main(["verify", str(report), "--expect-fingerprint", different]) == 1
+    mismatched = json.loads(capsys.readouterr().out)
+    assert mismatched["valid"] is True
+    assert mismatched["matches_expected"] is False
+
+
+def test_cli_verify_rejects_invalid_expectation_and_tampered_report(tmp_path: Path, capsys) -> None:
+    report = write_investigation_report(tmp_path, capsys)
+
+    status = main(["verify", str(report), "--expect-fingerprint", "sha256:ABC"])
+    assert status == 2
+    assert "64 lowercase hex digits" in capsys.readouterr().err
+
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    payload["status"] = "clean"
+    report.write_text(json.dumps(payload), encoding="utf-8")
+    status = main(["verify", str(report)])
+    assert status == 2
+    assert "report.status is 'clean'" in capsys.readouterr().err

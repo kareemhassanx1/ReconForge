@@ -595,6 +595,46 @@ def test_result_fingerprint_validates_public_input() -> None:
         result_fingerprint(object())  # type: ignore[arg-type]
 
 
+def test_strict_report_round_trip_accepts_all_issue_kinds() -> None:
+    left = Dataset(
+        "left.csv",
+        ("id", "value", "status", "left_only"),
+        (
+            Record("left.csv", 2, {"id": "A", "value": "one", "status": "ok", "left_only": "L"}),
+            Record("left.csv", 3, {"id": "B", "value": "two", "status": None, "left_only": "L"}),
+            Record("left.csv", 4, {"id": "D", "value": "three", "status": "ok", "left_only": "L"}),
+            Record("left.csv", 5, {"id": "D", "value": "four", "status": "ok", "left_only": "L"}),
+        ),
+    )
+    right = Dataset(
+        "right.csv",
+        ("id", "value", "status", "right_only"),
+        (
+            Record(
+                "right.csv", 2, {"id": "A", "value": "changed", "status": "ok", "right_only": "R"}
+            ),
+            Record("right.csv", 3, {"id": "C", "value": "two", "status": "ok", "right_only": "R"}),
+            Record(
+                "right.csv", 4, {"id": "E", "value": "three", "status": "ok", "right_only": "R"}
+            ),
+            Record("right.csv", 5, {"id": "E", "value": "four", "status": "ok", "right_only": "R"}),
+        ),
+    )
+    result = reconcile(
+        left,
+        right,
+        ReconciliationConfig(
+            key_fields=("id",),
+            validation_rules={"status": (RequiredRule(),)},
+        ),
+    )
+
+    restored = result_from_dict(result_to_dict(result))
+
+    assert restored == result
+    assert restored.issue_count == 8
+
+
 def test_report_separates_validation_only_status_and_context() -> None:
     left = Dataset(
         source="left.csv",

@@ -28,6 +28,7 @@ added without coupling them to the command-line interface.
 - Export one canonical report model as stable JSON, analysis-ready CSV, or self-contained HTML.
 - Investigate saved JSON results with deterministic filters, sorting, facets, cursors, and exports.
 - Compare saved reports to identify added, moved, resolved, and unchanged issues.
+- Strictly verify saved report structure, semantics, and content fingerprints.
 - Return a non-zero CLI status when differences are found.
 
 ## Quick start
@@ -395,6 +396,32 @@ HTML with `--report-format` or an inferred `--output` suffix. File output is ato
 `--fail-on-change` in CI to return status `1` when the filtered set contains any added, moved, or
 resolved entry; successful execution with only unchanged entries returns `0`, and invalid input
 returns `2`.
+
+## Report verification
+
+Treat saved JSON reports as untrusted input before investigation, automation, or archival:
+
+```powershell
+reconforge verify reconciliation.json
+```
+
+Verification rejects duplicate JSON keys, unknown or missing structural members, invalid recorded
+normalizers, comparison policies and validation rules, wrong composite-key arity, contradictory or
+duplicated issues, and summary or status values that do not match the report content. A valid
+report prints deterministic JSON containing its status, summary, and semantic SHA-256 fingerprint.
+
+Pin an expected result in an automated workflow:
+
+```powershell
+reconforge verify reconciliation.json `
+  --expect-fingerprint sha256:<64-lowercase-hex-digits>
+```
+
+The fingerprint is calculated from the canonical report model, so JSON whitespace, object-key
+order, and a UTF-8 BOM do not change it. A semantic value change does. Verification returns `0`
+for a valid report and matching expectation, `1` for a valid report whose fingerprint differs,
+and `2` for malformed input or an invalid expectation. The command is read-only and never changes
+the report.
 
 ## Input formats
 

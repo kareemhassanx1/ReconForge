@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
+import re
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -40,6 +42,7 @@ from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import (
     batch_result_to_dict,
     load_json_report,
+    result_fingerprint,
     result_to_dict,
 )
 from reconforge.result_delta import (
@@ -50,6 +53,8 @@ from reconforge.result_delta import (
 )
 from reconforge.result_delta_exporters import render_delta_page, write_delta_page
 from reconforge.run_store import RunInput, RunStore, StoredRun, stored_run_to_dict
+
+_REPORT_FINGERPRINT_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -294,6 +299,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="return status 1 when the filtered set contains added, moved, or resolved entries",
     )
+
+    verify = subcommands.add_parser(
+        "verify",
+        help="validate a saved report and calculate its semantic fingerprint",
+    )
+    verify.add_argument("report", type=Path, help="canonical single-result JSON report")
+    verify.add_argument(
+        "--expect-fingerprint",
+        metavar="SHA256",
+        help="return status 1 unless the report matches this sha256 fingerprint",
+    )
     return parser
 
 
@@ -313,6 +329,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_inspect(arguments)
     if arguments.command == "diff":
         return _run_diff(arguments)
+    if arguments.command == "verify":
+        return _run_verify(arguments)
     parser.error(f"unsupported command: {arguments.command}")
     return 2
 
@@ -520,6 +538,37 @@ def _run_diff(arguments: argparse.Namespace) -> int:
         if status is not DeltaStatus.UNCHANGED
     )
     return 1 if arguments.fail_on_change and changed else 0
+
+
+def _run_verify(arguments: argparse.Namespace) -> int:
+    """Strictly validate one report and optionally check an expected fingerprint."""
+
+    try:
+        expected = arguments.expect_fingerprint
+        if expected is not None and _REPORT_FINGERPRINT_PATTERN.fullmatch(expected) is None:
+            raise ValueError(
+                "expected fingerprint must use sha256 followed by 64 lowercase hex digits"
+            )
+        result = load_json_report(arguments.report)
+        report = result_to_dict(result)
+        fingerprint = result_fingerprint(result)
+        matches_expected = None if expected is None else hmac.compare_digest(fingerprint, expected)
+    except (ReconForgeError, ValueError) as exc:
+        print(f"reconforge: error: {exc}", file=sys.stderr)
+        return 2
+
+    payload = {
+        "verification_version": 1,
+        "valid": True,
+        "report_version": report["report_version"],
+        "status": report["status"],
+        "summary": report["summary"],
+        "fingerprint": fingerprint,
+        "expected_fingerprint": expected,
+        "matches_expected": matches_expected,
+    }
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 1 if matches_expected is False else 0
 
 
 def _resolve_execution_settings(arguments: argparse.Namespace) -> _ExecutionSettings:
