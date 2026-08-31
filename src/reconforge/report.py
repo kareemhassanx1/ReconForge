@@ -259,6 +259,7 @@ def result_from_dict(payload: Mapping[str, object]) -> ReconciliationResult:
         ),
     )
     _validate_issue_semantics(result)
+    _validate_issue_consistency(result)
     return result
 
 
@@ -647,6 +648,64 @@ def _validate_issue_semantics(result: ReconciliationResult) -> None:
 def _validate_key_arity(key: tuple[str | None, ...], expected: int, location: str) -> None:
     if len(key) != expected:
         raise ValueError(f"{location} must contain {expected} component(s); received {len(key)}")
+
+
+def _validate_issue_consistency(result: ReconciliationResult) -> None:
+    _require_unique_issue_values(
+        tuple((item.key, item.field) for item in result.differences),
+        "report.differences",
+    )
+    _require_unique_issue_values(
+        tuple(item.key for item in result.missing_from_left),
+        "report.missing_records.from_left",
+    )
+    _require_unique_issue_values(
+        tuple(item.key for item in result.missing_from_right),
+        "report.missing_records.from_right",
+    )
+    _require_unique_issue_values(
+        tuple(item.key for item in result.duplicate_left),
+        "report.duplicate_keys.left",
+    )
+    _require_unique_issue_values(
+        tuple(item.key for item in result.duplicate_right),
+        "report.duplicate_keys.right",
+    )
+    _require_unique_issue_values(result.fields_only_left, "report.schema.fields_only_left")
+    _require_unique_issue_values(result.fields_only_right, "report.schema.fields_only_right")
+
+    schema_overlap = sorted(set(result.fields_only_left) & set(result.fields_only_right))
+    if schema_overlap:
+        raise ValueError(
+            f"report.schema fields cannot be exclusive to both sides: {schema_overlap!r}"
+        )
+
+    classifications: dict[tuple[str | None, ...], set[str]] = {}
+    for label, keys in (
+        ("field_difference", {item.key for item in result.differences}),
+        ("missing_from_left", {item.key for item in result.missing_from_left}),
+        ("missing_from_right", {item.key for item in result.missing_from_right}),
+        ("duplicate_key", {item.key for item in (*result.duplicate_left, *result.duplicate_right)}),
+    ):
+        for key in keys:
+            classifications.setdefault(key, set()).add(label)
+    for key, labels in classifications.items():
+        if len(labels) > 1:
+            raise ValueError(
+                f"report contains contradictory classifications for key {list(key)!r}: "
+                f"{sorted(labels)!r}"
+            )
+
+
+def _require_unique_issue_values(values: tuple[object, ...], location: str) -> None:
+    seen: dict[object, int] = {}
+    for index, value in enumerate(values):
+        previous = seen.get(value)
+        if previous is not None:
+            raise ValueError(
+                f"{location}[{index}] duplicates the identity at {location}[{previous}]"
+            )
+        seen[value] = index
 
 
 def _cell(value: object, location: str) -> str | None:

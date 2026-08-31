@@ -379,6 +379,75 @@ def test_report_rejects_validation_issues_without_declared_rule(
         result_from_dict(report)
 
 
+@pytest.mark.parametrize(
+    ("mutator", "message"),
+    [
+        (
+            lambda report: report["differences"].append(deepcopy(report["differences"][0])),
+            r"differences\[1\] duplicates the identity",
+        ),
+        (
+            lambda report: report["missing_records"]["from_left"].extend(
+                [
+                    {"key": ["B"], "right_row": 3},
+                    {"key": ["B"], "right_row": 4},
+                ]
+            ),
+            r"from_left\[1\] duplicates the identity",
+        ),
+        (
+            lambda report: report["duplicate_keys"]["left"].extend(
+                [
+                    {"key": ["B"], "row_numbers": [3, 4]},
+                    {"key": ["B"], "row_numbers": [5, 6]},
+                ]
+            ),
+            r"duplicate_keys.left\[1\] duplicates the identity",
+        ),
+        (
+            lambda report: report["schema"].update(fields_only_left=["note", "note"]),
+            r"fields_only_left\[1\] duplicates the identity",
+        ),
+        (
+            lambda report: report["schema"].update(
+                fields_only_left=["left_note"],
+                fields_only_right=["left_note"],
+            ),
+            "cannot be exclusive to both sides",
+        ),
+    ],
+)
+def test_report_rejects_duplicate_issue_identities(mutator, message: str) -> None:
+    report = result_to_dict(make_result())
+    mutator(report)
+
+    with pytest.raises(ValueError, match=message):
+        result_from_dict(report)
+
+
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda report: report["missing_records"]["from_left"].append(
+            {"key": ["A"], "right_row": 3}
+        ),
+        lambda report: (
+            report["missing_records"]["from_left"].append({"key": ["B"], "right_row": 3}),
+            report["missing_records"]["from_right"].append({"key": ["B"], "left_row": 3}),
+        ),
+        lambda report: report["duplicate_keys"]["left"].append(
+            {"key": ["A"], "row_numbers": [2, 3]}
+        ),
+    ],
+)
+def test_report_rejects_contradictory_key_classifications(mutator) -> None:
+    report = result_to_dict(make_result())
+    mutator(report)
+
+    with pytest.raises(ValueError, match="contradictory classifications for key"):
+        result_from_dict(report)
+
+
 def test_report_separates_validation_only_status_and_context() -> None:
     left = Dataset(
         source="left.csv",
