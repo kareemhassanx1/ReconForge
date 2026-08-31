@@ -245,6 +245,68 @@ def test_report_configuration_rejects_invalid_scope(mutator, message: str) -> No
         result_from_dict(report)
 
 
+@pytest.mark.parametrize(
+    ("section", "descriptor", "message"),
+    [
+        ("field_normalizers", "money", "unknown normalizer type"),
+        ("field_normalizers", " Decimal ", "canonical descriptor"),
+        ("comparison_policies", "decimal:tolerance=-1", "finite non-negative"),
+        ("comparison_policies", "decimal:tolerance=NaN", "finite non-negative"),
+        ("comparison_policies", "decimal:tolerance=1.0", "canonical descriptor"),
+    ],
+)
+def test_report_rejects_invalid_recorded_normalizer_and_policy_descriptors(
+    section: str, descriptor: str, message: str
+) -> None:
+    report = result_to_dict(make_result())
+    report["configuration"][section]["amount"] = descriptor
+
+    with pytest.raises(ValueError, match=message):
+        result_from_dict(report)
+
+
+@pytest.mark.parametrize(
+    ("descriptor", "message"),
+    [
+        ("unknown", "unknown validation rule descriptor"),
+        ("allowed:not-json", "Expecting value"),
+        ('allowed:["A","A"]', "allowed values must be unique"),
+        ("numeric_range:[0,+inf]", "unbounded maximum must be exclusive"),
+        ("numeric_range:[10,0]", "minimum cannot exceed maximum"),
+        ("numeric_range:[NaN,10]", "finite decimal"),
+        ("pattern:[", "unterminated character set"),
+    ],
+)
+def test_report_rejects_invalid_recorded_validation_descriptors(
+    descriptor: str, message: str
+) -> None:
+    report = result_to_dict(make_result())
+    report["configuration"]["validation_rules"]["amount"] = [descriptor]
+
+    with pytest.raises(ValueError, match=message):
+        result_from_dict(report)
+
+
+def test_report_accepts_every_canonical_recorded_descriptor() -> None:
+    report = result_to_dict(make_result())
+    report["configuration"]["field_normalizers"] = {"id": "text", "amount": "decimal"}
+    report["configuration"]["comparison_policies"] = {"amount": "decimal:tolerance=0.01"}
+    report["configuration"]["validation_rules"] = {
+        "amount": [
+            "required",
+            'allowed:["10","11"]',
+            "numeric_range:[0,100)",
+            r"pattern:\d+",
+        ]
+    }
+
+    loaded = result_from_dict(report)
+
+    assert dict(loaded.field_normalizers) == {"amount": "decimal", "id": "text"}
+    assert dict(loaded.comparison_policies) == {"amount": "decimal:tolerance=0.01"}
+    assert dict(loaded.validation_rules)["amount"][-1] == r"pattern:\d+"
+
+
 def test_report_separates_validation_only_status_and_context() -> None:
     left = Dataset(
         source="left.csv",

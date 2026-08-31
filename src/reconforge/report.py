@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,14 @@ from reconforge.model import (
     MissingRecord,
     ReconciliationResult,
     ValidationViolation,
+)
+from reconforge.normalization import FieldNormalizer
+from reconforge.policies import ComparisonPolicy
+from reconforge.validation import (
+    AllowedValuesRule,
+    NumericRangeRule,
+    RequiredRule,
+    TextPatternRule,
 )
 
 _REPORT_FIELDS = frozenset(
@@ -61,6 +70,9 @@ _DIFFERENCE_FIELDS = frozenset(
     {"key", "field", "left_value", "right_value", "left_row", "right_row"}
 )
 _VIOLATION_FIELDS = frozenset({"side", "source", "row_number", "field", "value", "rule", "message"})
+_NUMERIC_RANGE_DESCRIPTOR = re.compile(
+    r"numeric_range:(?P<left>[\[(])(?P<minimum>[^,]+),(?P<maximum>[^\])]+)(?P<right>[\])])"
+)
 
 
 def result_to_dict(result: ReconciliationResult) -> dict[str, Any]:
@@ -191,6 +203,7 @@ def result_from_dict(payload: Mapping[str, object]) -> ReconciliationResult:
         policies=policies,
         validation_rules=validation_rules,
     )
+    _validate_recorded_descriptors(normalizers, policies, validation_rules)
 
     return ReconciliationResult(
         key_fields=key_fields,
@@ -495,6 +508,76 @@ def _validate_configuration_scope(
         raise ValueError(
             f"report.configuration.validation_rules entries must not be empty: {empty_rules!r}"
         )
+
+
+def _validate_recorded_descriptors(
+    normalizers: Mapping[str, str],
+    policies: Mapping[str, str],
+    validation_rules: tuple[tuple[str, tuple[str, ...]], ...],
+) -> None:
+    for field, descriptor in normalizers.items():
+        location = f"report.configuration.field_normalizers[{field!r}]"
+        try:
+            parsed = FieldNormalizer.named(descriptor)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{location} is invalid: {exc}") from exc
+        if parsed.kind.value != descriptor:
+            raise ValueError(f"{location} must use canonical descriptor {parsed.kind.value!r}")
+
+    for field, descriptor in policies.items():
+        location = f"report.configuration.comparison_policies[{field!r}]"
+        try:
+            parsed = _parse_policy_descriptor(descriptor)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{location} is invalid: {exc}") from exc
+        if parsed.descriptor != descriptor:
+            raise ValueError(f"{location} must use canonical descriptor {parsed.descriptor!r}")
+
+    for field, descriptors in validation_rules:
+        for index, descriptor in enumerate(descriptors):
+            location = f"report.configuration.validation_rules[{field!r}][{index}]"
+            try:
+                canonical = _parse_validation_descriptor(descriptor)
+            except (TypeError, ValueError, json.JSONDecodeError, re.error) as exc:
+                raise ValueError(f"{location} is invalid: {exc}") from exc
+            if canonical != descriptor:
+                raise ValueError(f"{location} must use canonical descriptor {canonical!r}")
+
+
+def _parse_policy_descriptor(descriptor: str) -> ComparisonPolicy:
+    prefix = "decimal:tolerance="
+    if descriptor.startswith(prefix):
+        return ComparisonPolicy.decimal(descriptor.removeprefix(prefix))
+    return ComparisonPolicy.named(descriptor)
+
+
+def _parse_validation_descriptor(descriptor: str) -> str:
+    if descriptor == "required":
+        return RequiredRule().descriptor
+    if descriptor.startswith("allowed:"):
+        values = json.loads(descriptor.removeprefix("allowed:"))
+        if not isinstance(values, list):
+            raise ValueError("allowed descriptor values must be a JSON array")
+        return AllowedValuesRule(tuple(values)).descriptor
+    if descriptor.startswith("numeric_range:"):
+        match = _NUMERIC_RANGE_DESCRIPTOR.fullmatch(descriptor)
+        if match is None:
+            raise ValueError("invalid numeric-range descriptor")
+        minimum_text = match.group("minimum")
+        maximum_text = match.group("maximum")
+        if minimum_text == "-inf" and match.group("left") != "(":
+            raise ValueError("an unbounded minimum must be exclusive")
+        if maximum_text == "+inf" and match.group("right") != ")":
+            raise ValueError("an unbounded maximum must be exclusive")
+        return NumericRangeRule(
+            minimum=None if minimum_text == "-inf" else minimum_text,
+            maximum=None if maximum_text == "+inf" else maximum_text,
+            minimum_inclusive=match.group("left") == "[",
+            maximum_inclusive=match.group("right") == "]",
+        ).descriptor
+    if descriptor.startswith("pattern:"):
+        return TextPatternRule(descriptor.removeprefix("pattern:")).descriptor
+    raise ValueError(f"unknown validation rule descriptor {descriptor!r}")
 
 
 def _cell(value: object, location: str) -> str | None:
