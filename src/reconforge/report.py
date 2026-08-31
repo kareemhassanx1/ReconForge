@@ -176,17 +176,26 @@ def result_from_dict(payload: Mapping[str, object]) -> ReconciliationResult:
         )
         for field in sorted(raw_rules)
     )
+    key_fields = _string_tuple(configuration.get("key_fields"), "report.configuration.key_fields")
+    compared_fields = _string_tuple(
+        configuration.get("compared_fields"), "report.configuration.compared_fields"
+    )
+    ignored_fields = _string_tuple(
+        configuration.get("ignored_fields"), "report.configuration.ignored_fields"
+    )
+    _validate_configuration_scope(
+        key_fields=key_fields,
+        compared_fields=compared_fields,
+        ignored_fields=ignored_fields,
+        normalizers=normalizers,
+        policies=policies,
+        validation_rules=validation_rules,
+    )
 
     return ReconciliationResult(
-        key_fields=_string_tuple(
-            configuration.get("key_fields"), "report.configuration.key_fields"
-        ),
-        compared_fields=_string_tuple(
-            configuration.get("compared_fields"), "report.configuration.compared_fields"
-        ),
-        ignored_fields=_string_tuple(
-            configuration.get("ignored_fields"), "report.configuration.ignored_fields"
-        ),
+        key_fields=key_fields,
+        compared_fields=compared_fields,
+        ignored_fields=ignored_fields,
         case_sensitive_keys=_boolean(
             configuration.get("case_sensitive_keys"),
             "report.configuration.case_sensitive_keys",
@@ -430,6 +439,62 @@ def _boolean(value: object, location: str) -> bool:
     if type(value) is not bool:
         raise ValueError(f"{location} must be a boolean")
     return value
+
+
+def _validate_configuration_scope(
+    *,
+    key_fields: tuple[str, ...],
+    compared_fields: tuple[str, ...],
+    ignored_fields: tuple[str, ...],
+    normalizers: Mapping[str, str],
+    policies: Mapping[str, str],
+    validation_rules: tuple[tuple[str, tuple[str, ...]], ...],
+) -> None:
+    if not key_fields:
+        raise ValueError("report.configuration.key_fields must contain at least one field")
+    for fields, location in (
+        (key_fields, "report.configuration.key_fields"),
+        (compared_fields, "report.configuration.compared_fields"),
+        (ignored_fields, "report.configuration.ignored_fields"),
+    ):
+        duplicates = sorted({field for field in fields if fields.count(field) > 1})
+        if duplicates:
+            raise ValueError(f"{location} must contain unique fields; repeated: {duplicates!r}")
+
+    groups = {
+        "key_fields": set(key_fields),
+        "compared_fields": set(compared_fields),
+        "ignored_fields": set(ignored_fields),
+    }
+    for left, right in (
+        ("key_fields", "compared_fields"),
+        ("key_fields", "ignored_fields"),
+        ("compared_fields", "ignored_fields"),
+    ):
+        overlap = sorted(groups[left] & groups[right])
+        if overlap:
+            raise ValueError(
+                f"report.configuration.{left} and {right} must not overlap: {overlap!r}"
+            )
+
+    usable_normalizers = groups["key_fields"] | groups["compared_fields"]
+    unused_normalizers = sorted(set(normalizers) - usable_normalizers)
+    if unused_normalizers:
+        raise ValueError(
+            "report.configuration.field_normalizers contains fields outside key_fields or "
+            f"compared_fields: {unused_normalizers!r}"
+        )
+    unused_policies = sorted(set(policies) - groups["compared_fields"])
+    if unused_policies:
+        raise ValueError(
+            "report.configuration.comparison_policies contains fields outside "
+            f"compared_fields: {unused_policies!r}"
+        )
+    empty_rules = sorted(field for field, rules in validation_rules if not rules)
+    if empty_rules:
+        raise ValueError(
+            f"report.configuration.validation_rules entries must not be empty: {empty_rules!r}"
+        )
 
 
 def _cell(value: object, location: str) -> str | None:

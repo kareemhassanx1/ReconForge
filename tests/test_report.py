@@ -192,6 +192,59 @@ def test_report_shape_checks_every_issue_object(
         result_from_dict(report)
 
 
+@pytest.mark.parametrize(
+    ("mutator", "message"),
+    [
+        (
+            lambda config: config.update(key_fields=[]),
+            "key_fields must contain at least one field",
+        ),
+        (
+            lambda config: config.update(key_fields=["id", "id"]),
+            "key_fields must contain unique fields",
+        ),
+        (
+            lambda config: config.update(compared_fields=["amount", "amount"]),
+            "compared_fields must contain unique fields",
+        ),
+        (
+            lambda config: config.update(ignored_fields=["note", "note"]),
+            "ignored_fields must contain unique fields",
+        ),
+        (
+            lambda config: config.update(compared_fields=["id"]),
+            "key_fields and compared_fields must not overlap",
+        ),
+        (
+            lambda config: config.update(ignored_fields=["id"]),
+            "key_fields and ignored_fields must not overlap",
+        ),
+        (
+            lambda config: config.update(ignored_fields=["amount"]),
+            "compared_fields and ignored_fields must not overlap",
+        ),
+        (
+            lambda config: config["field_normalizers"].update(note="text"),
+            "field_normalizers contains fields outside",
+        ),
+        (
+            lambda config: config["comparison_policies"].update(id="exact"),
+            "comparison_policies contains fields outside",
+        ),
+        (
+            lambda config: config["validation_rules"].update(amount=[]),
+            "validation_rules entries must not be empty",
+        ),
+    ],
+)
+def test_report_configuration_rejects_invalid_scope(mutator, message: str) -> None:
+    report = result_to_dict(make_result())
+    mutator(report["configuration"])
+
+    with pytest.raises(ValueError, match=message):
+        result_from_dict(report)
+
+
 def test_report_separates_validation_only_status_and_context() -> None:
     left = Dataset(
         source="left.csv",
