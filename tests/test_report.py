@@ -307,6 +307,78 @@ def test_report_accepts_every_canonical_recorded_descriptor() -> None:
     assert dict(loaded.validation_rules)["amount"][-1] == r"pattern:\d+"
 
 
+@pytest.mark.parametrize(
+    ("mutator", "message"),
+    [
+        (
+            lambda report: report["differences"][0].update(key=[]),
+            r"differences\[0\].key must contain 1 component",
+        ),
+        (
+            lambda report: report["differences"][0].update(field="note"),
+            "is not a compared field",
+        ),
+        (
+            lambda report: report["missing_records"]["from_left"].append(
+                {"key": ["B", "extra"], "right_row": 3}
+            ),
+            r"from_left\[0\].key must contain 1 component",
+        ),
+        (
+            lambda report: report["duplicate_keys"]["left"].append(
+                {"key": ["B"], "row_numbers": [3]}
+            ),
+            "row_numbers must contain at least two rows",
+        ),
+        (
+            lambda report: report["duplicate_keys"]["right"].append(
+                {"key": ["B"], "row_numbers": [3, 3]}
+            ),
+            "row_numbers must contain unique rows",
+        ),
+        (
+            lambda report: report["schema"]["fields_only_left"].append("id"),
+            "fields_only_left contains configured fields",
+        ),
+    ],
+)
+def test_report_rejects_issues_outside_configuration(mutator, message: str) -> None:
+    report = result_to_dict(make_result())
+    mutator(report)
+
+    with pytest.raises(ValueError, match=message):
+        result_from_dict(report)
+
+
+@pytest.mark.parametrize(
+    ("side", "field", "rule", "message"),
+    [
+        ("center", "amount", "required", "side must be 'left' or 'right'"),
+        ("left", "note", "required", "has no configured validation rules"),
+        ("right", "amount", "allowed:[]", "is not configured for field"),
+    ],
+)
+def test_report_rejects_validation_issues_without_declared_rule(
+    side: str, field: str, rule: str, message: str
+) -> None:
+    report = result_to_dict(make_result())
+    report["configuration"]["validation_rules"] = {"amount": ["required"]}
+    report["validation_violations"] = [
+        {
+            "side": side,
+            "source": "left.csv",
+            "row_number": 2,
+            "field": field,
+            "value": None,
+            "rule": rule,
+            "message": "value is required",
+        }
+    ]
+
+    with pytest.raises(ValueError, match=message):
+        result_from_dict(report)
+
+
 def test_report_separates_validation_only_status_and_context() -> None:
     left = Dataset(
         source="left.csv",

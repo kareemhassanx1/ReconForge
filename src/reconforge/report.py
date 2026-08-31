@@ -205,7 +205,7 @@ def result_from_dict(payload: Mapping[str, object]) -> ReconciliationResult:
     )
     _validate_recorded_descriptors(normalizers, policies, validation_rules)
 
-    return ReconciliationResult(
+    result = ReconciliationResult(
         key_fields=key_fields,
         compared_fields=compared_fields,
         ignored_fields=ignored_fields,
@@ -258,6 +258,8 @@ def result_from_dict(payload: Mapping[str, object]) -> ReconciliationResult:
             schema.get("fields_only_right"), "report.schema.fields_only_right"
         ),
     )
+    _validate_issue_semantics(result)
+    return result
 
 
 def load_json_report(path: str | Path) -> ReconciliationResult:
@@ -578,6 +580,73 @@ def _parse_validation_descriptor(descriptor: str) -> str:
     if descriptor.startswith("pattern:"):
         return TextPatternRule(descriptor.removeprefix("pattern:")).descriptor
     raise ValueError(f"unknown validation rule descriptor {descriptor!r}")
+
+
+def _validate_issue_semantics(result: ReconciliationResult) -> None:
+    key_arity = len(result.key_fields)
+    compared = set(result.compared_fields)
+    declared_rules = dict(result.validation_rules)
+    for index, difference in enumerate(result.differences):
+        _validate_key_arity(difference.key, key_arity, f"report.differences[{index}].key")
+        if difference.field not in compared:
+            raise ValueError(
+                f"report.differences[{index}].field {difference.field!r} is not a compared field"
+            )
+    for section, records in (
+        ("report.missing_records.from_left", result.missing_from_left),
+        ("report.missing_records.from_right", result.missing_from_right),
+    ):
+        for index, record in enumerate(records):
+            _validate_key_arity(record.key, key_arity, f"{section}[{index}].key")
+    for section, duplicates in (
+        ("report.duplicate_keys.left", result.duplicate_left),
+        ("report.duplicate_keys.right", result.duplicate_right),
+    ):
+        for index, duplicate in enumerate(duplicates):
+            location = f"{section}[{index}]"
+            _validate_key_arity(duplicate.key, key_arity, f"{location}.key")
+            if len(duplicate.row_numbers) < 2:
+                raise ValueError(f"{location}.row_numbers must contain at least two rows")
+            if len(duplicate.row_numbers) != len(set(duplicate.row_numbers)):
+                raise ValueError(f"{location}.row_numbers must contain unique rows")
+
+    for index, violation in enumerate(result.validation_violations):
+        location = f"report.validation_violations[{index}]"
+        if violation.side not in {"left", "right"}:
+            raise ValueError(f"{location}.side must be 'left' or 'right'")
+        rules = declared_rules.get(violation.field)
+        if rules is None:
+            raise ValueError(
+                f"{location}.field {violation.field!r} has no configured validation rules"
+            )
+        if violation.rule not in rules:
+            raise ValueError(
+                f"{location}.rule {violation.rule!r} is not configured for field "
+                f"{violation.field!r}"
+            )
+
+    configured_fields = {
+        *result.key_fields,
+        *result.compared_fields,
+        *result.ignored_fields,
+        *(field for field, _ in result.field_normalizers),
+        *(field for field, _ in result.comparison_policies),
+        *(field for field, _ in result.validation_rules),
+    }
+    for side, fields in (
+        ("left", result.fields_only_left),
+        ("right", result.fields_only_right),
+    ):
+        overlap = sorted(set(fields) & configured_fields)
+        if overlap:
+            raise ValueError(
+                f"report.schema.fields_only_{side} contains configured fields: {overlap!r}"
+            )
+
+
+def _validate_key_arity(key: tuple[str | None, ...], expected: int, location: str) -> None:
+    if len(key) != expected:
+        raise ValueError(f"{location} must contain {expected} component(s); received {len(key)}")
 
 
 def _cell(value: object, location: str) -> str | None:
