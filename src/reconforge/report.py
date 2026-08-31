@@ -17,6 +17,51 @@ from reconforge.model import (
     ValidationViolation,
 )
 
+_REPORT_FIELDS = frozenset(
+    {
+        "report_version",
+        "status",
+        "summary",
+        "configuration",
+        "schema",
+        "differences",
+        "validation_violations",
+        "missing_records",
+        "duplicate_keys",
+    }
+)
+_SUMMARY_FIELDS = frozenset(
+    {
+        "matched_records",
+        "discrepancies",
+        "validation_violations",
+        "issues",
+        "field_differences",
+        "missing_from_left",
+        "missing_from_right",
+        "duplicate_keys_left",
+        "duplicate_keys_right",
+    }
+)
+_CONFIGURATION_FIELDS = frozenset(
+    {
+        "key_fields",
+        "compared_fields",
+        "ignored_fields",
+        "case_sensitive_keys",
+        "field_normalizers",
+        "comparison_policies",
+        "validation_rules",
+    }
+)
+_SCHEMA_FIELDS = frozenset({"fields_only_left", "fields_only_right"})
+_MISSING_FIELDS = frozenset({"from_left", "from_right"})
+_DUPLICATE_FIELDS = frozenset({"left", "right"})
+_DIFFERENCE_FIELDS = frozenset(
+    {"key", "field", "left_value", "right_value", "left_row", "right_row"}
+)
+_VIOLATION_FIELDS = frozenset({"side", "source", "row_number", "field", "value", "rule", "message"})
+
 
 def result_to_dict(result: ReconciliationResult) -> dict[str, Any]:
     """Convert a reconciliation result into a versioned report structure."""
@@ -100,11 +145,18 @@ def result_from_dict(payload: Mapping[str, object]) -> ReconciliationResult:
     report = _object(payload, "report")
     if report.get("report_version") != 1:
         raise ValueError(f"unsupported report version {report.get('report_version')!r}; expected 1")
-    summary = _object(report.get("summary"), "report.summary")
-    configuration = _object(report.get("configuration"), "report.configuration")
-    schema = _object(report.get("schema"), "report.schema")
-    missing = _object(report.get("missing_records"), "report.missing_records")
-    duplicates = _object(report.get("duplicate_keys"), "report.duplicate_keys")
+    report = _exact_object(report, "report", _REPORT_FIELDS)
+    summary = _exact_object(report.get("summary"), "report.summary", _SUMMARY_FIELDS)
+    configuration = _exact_object(
+        report.get("configuration"), "report.configuration", _CONFIGURATION_FIELDS
+    )
+    schema = _exact_object(report.get("schema"), "report.schema", _SCHEMA_FIELDS)
+    missing = _exact_object(
+        report.get("missing_records"), "report.missing_records", _MISSING_FIELDS
+    )
+    duplicates = _exact_object(
+        report.get("duplicate_keys"), "report.duplicate_keys", _DUPLICATE_FIELDS
+    )
     normalizers = _string_map(
         configuration.get("field_normalizers"),
         "report.configuration.field_normalizers",
@@ -313,6 +365,21 @@ def _object(value: object, location: str) -> dict[str, object]:
     return dict(value)
 
 
+def _exact_object(
+    value: object,
+    location: str,
+    fields: frozenset[str],
+) -> dict[str, object]:
+    payload = _object(value, location)
+    missing = sorted(fields - payload.keys())
+    if missing:
+        raise ValueError(f"{location} is missing required field(s): {missing!r}")
+    unknown = sorted(payload.keys() - fields)
+    if unknown:
+        raise ValueError(f"{location} contains unknown field(s): {unknown!r}")
+    return payload
+
+
 class _DuplicateObjectKeyError(ValueError):
     """Internal signal for ambiguous JSON objects."""
 
@@ -379,7 +446,7 @@ def _record_key(value: object, location: str) -> tuple[str | None, ...]:
 
 def _field_difference(value: object, index: int) -> FieldDifference:
     location = f"report.differences[{index}]"
-    item = _object(value, location)
+    item = _exact_object(value, location, _DIFFERENCE_FIELDS)
     field = item.get("field")
     if not isinstance(field, str):
         raise ValueError(f"{location}.field must be a string")
@@ -395,7 +462,7 @@ def _field_difference(value: object, index: int) -> FieldDifference:
 
 def _validation_violation(value: object, index: int) -> ValidationViolation:
     location = f"report.validation_violations[{index}]"
-    item = _object(value, location)
+    item = _exact_object(value, location, _VIOLATION_FIELDS)
     strings: dict[str, str] = {}
     for name in ("side", "source", "field", "rule", "message"):
         field_value = item.get(name)
@@ -415,7 +482,7 @@ def _validation_violation(value: object, index: int) -> ValidationViolation:
 
 def _missing_record(value: object, index: int, row_key: str, side: str) -> MissingRecord:
     location = f"report.missing_records.{side}[{index}]"
-    item = _object(value, location)
+    item = _exact_object(value, location, frozenset({"key", row_key}))
     return MissingRecord(
         key=_record_key(item.get("key"), f"{location}.key"),
         row_number=_positive_integer(item.get(row_key), f"{location}.{row_key}"),
@@ -424,7 +491,7 @@ def _missing_record(value: object, index: int, row_key: str, side: str) -> Missi
 
 def _duplicate_key(value: object, index: int, side: str) -> DuplicateKey:
     location = f"report.duplicate_keys.{side}[{index}]"
-    item = _object(value, location)
+    item = _exact_object(value, location, frozenset({"key", "row_numbers"}))
     rows = _array(item.get("row_numbers"), f"{location}.row_numbers")
     return DuplicateKey(
         key=_record_key(item.get("key"), f"{location}.key"),
