@@ -27,6 +27,40 @@ def make_result():
     return reconcile(left, right, ReconciliationConfig(key_fields=("id",)))
 
 
+def make_status_result(*, difference: bool, violation: bool):
+    left = Dataset(
+        "left.csv",
+        ("id", "value", "status"),
+        (
+            Record(
+                "left.csv",
+                2,
+                {"id": "A", "value": "old", "status": None if violation else "ok"},
+            ),
+        ),
+    )
+    right = Dataset(
+        "right.csv",
+        ("id", "value", "status"),
+        (
+            Record(
+                "right.csv",
+                2,
+                {"id": "A", "value": "new" if difference else "old", "status": "ok"},
+            ),
+        ),
+    )
+    return reconcile(
+        left,
+        right,
+        ReconciliationConfig(
+            key_fields=("id",),
+            compare_fields=("value",),
+            validation_rules={"status": (RequiredRule(),)},
+        ),
+    )
+
+
 def mutate_report(path: tuple[str | int, ...], *, remove: bool) -> dict[str, object]:
     report = deepcopy(result_to_dict(make_result()))
     target: object = report
@@ -474,6 +508,34 @@ def test_report_requires_all_summary_counts_to_be_non_negative_integers() -> Non
     report["summary"]["missing_from_left"] = "0"
 
     with pytest.raises(ValueError, match="missing_from_left must be a non-negative integer"):
+        result_from_dict(report)
+
+
+@pytest.mark.parametrize(
+    ("difference", "violation", "status"),
+    [
+        (False, False, "clean"),
+        (True, False, "differences_found"),
+        (False, True, "validation_violations_found"),
+        (True, True, "differences_and_validation_violations_found"),
+    ],
+)
+def test_report_accepts_all_derived_statuses(
+    difference: bool, violation: bool, status: str
+) -> None:
+    result = make_status_result(difference=difference, violation=violation)
+    report = result_to_dict(result)
+
+    assert report["status"] == status
+    assert result_from_dict(report) == result
+
+
+@pytest.mark.parametrize("status", ["clean", "issues_found", "", 1, None])
+def test_report_rejects_status_that_does_not_match_content(status: object) -> None:
+    report = result_to_dict(make_result())
+    report["status"] = status
+
+    with pytest.raises(ValueError, match="report.status"):
         result_from_dict(report)
 
 

@@ -261,6 +261,7 @@ def result_from_dict(payload: Mapping[str, object]) -> ReconciliationResult:
     _validate_issue_semantics(result)
     _validate_issue_consistency(result)
     _validate_summary(summary, result)
+    _validate_status(report.get("status"), result)
     return result
 
 
@@ -721,6 +722,14 @@ def _validate_summary(summary: Mapping[str, object], result: ReconciliationResul
                 f"report.summary.{field} is {recorded[field]}; expected {expected[field]} "
                 "from report content"
             )
+
+
+def _validate_status(value: object, result: ReconciliationResult) -> None:
+    if not isinstance(value, str):
+        raise ValueError("report.status must be a string")
+    expected = _result_status(result)
+    if value != expected:
+        raise ValueError(f"report.status is {value!r}; expected {expected!r} from report content")
 
 
 def _cell(value: object, location: str) -> str | None:
