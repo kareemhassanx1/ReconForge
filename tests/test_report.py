@@ -448,6 +448,35 @@ def test_report_rejects_contradictory_key_classifications(mutator) -> None:
         result_from_dict(report)
 
 
+@pytest.mark.parametrize(
+    "field",
+    [
+        "discrepancies",
+        "validation_violations",
+        "issues",
+        "field_differences",
+        "missing_from_left",
+        "missing_from_right",
+        "duplicate_keys_left",
+        "duplicate_keys_right",
+    ],
+)
+def test_report_recomputes_every_derived_summary_count(field: str) -> None:
+    report = result_to_dict(make_result())
+    report["summary"][field] += 1
+
+    with pytest.raises(ValueError, match=rf"report.summary.{field} is .* expected .* content"):
+        result_from_dict(report)
+
+
+def test_report_requires_all_summary_counts_to_be_non_negative_integers() -> None:
+    report = result_to_dict(make_result())
+    report["summary"]["missing_from_left"] = "0"
+
+    with pytest.raises(ValueError, match="missing_from_left must be a non-negative integer"):
+        result_from_dict(report)
+
+
 def test_report_separates_validation_only_status_and_context() -> None:
     left = Dataset(
         source="left.csv",

@@ -260,6 +260,7 @@ def result_from_dict(payload: Mapping[str, object]) -> ReconciliationResult:
     )
     _validate_issue_semantics(result)
     _validate_issue_consistency(result)
+    _validate_summary(summary, result)
     return result
 
 
@@ -706,6 +707,20 @@ def _require_unique_issue_values(values: tuple[object, ...], location: str) -> N
                 f"{location}[{index}] duplicates the identity at {location}[{previous}]"
             )
         seen[value] = index
+
+
+def _validate_summary(summary: Mapping[str, object], result: ReconciliationResult) -> None:
+    recorded = {
+        field: _integer(summary.get(field), f"report.summary.{field}")
+        for field in sorted(_SUMMARY_FIELDS)
+    }
+    expected = result_to_dict(result)["summary"]
+    for field in sorted(_SUMMARY_FIELDS - {"matched_records"}):
+        if recorded[field] != expected[field]:
+            raise ValueError(
+                f"report.summary.{field} is {recorded[field]}; expected {expected[field]} "
+                "from report content"
+            )
 
 
 def _cell(value: object, location: str) -> str | None:
