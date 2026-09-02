@@ -171,8 +171,9 @@ def result_from_dict(payload: Mapping[str, object]) -> ReconciliationResult:
     """Reconstruct a result from ReconForge's canonical version-one report model."""
 
     report = _object(payload, "report")
-    if report.get("report_version") != 1:
-        raise ValueError(f"unsupported report version {report.get('report_version')!r}; expected 1")
+    version = report.get("report_version")
+    if type(version) is not int or version != 1:
+        raise ValueError(f"unsupported report version {version!r}; expected 1")
     report = _exact_object(report, "report", _REPORT_FIELDS)
     summary = _exact_object(report.get("summary"), "report.summary", _SUMMARY_FIELDS)
     configuration = _exact_object(

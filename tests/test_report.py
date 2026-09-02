@@ -152,6 +152,14 @@ def test_json_report_loader_keeps_bom_compatibility(tmp_path: Path) -> None:
     assert load_json_report(source) == make_result()
 
 
+def test_report_parser_rejects_boolean_version_alias() -> None:
+    report = result_to_dict(make_result())
+    report["report_version"] = True
+
+    with pytest.raises(ValueError, match="unsupported report version True"):
+        result_from_dict(report)
+
+
 @pytest.mark.parametrize(
     ("path", "location"),
     [

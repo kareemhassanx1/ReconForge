@@ -97,6 +97,14 @@ def test_batch_report_parser_rejects_invalid_envelope_and_nested_result(
         batch_report_from_dict(payload)
 
 
+def test_batch_report_parser_rejects_boolean_nested_report_version(tmp_path: Path) -> None:
+    payload = batch_result_to_dict(make_batch(tmp_path))
+    payload["pairs"][0]["result"]["report_version"] = True
+
+    with pytest.raises(ValueError, match=r"pairs\[0\]\.result.*unsupported report version True"):
+        batch_report_from_dict(payload)
+
+
 def test_batch_report_loader_accepts_bom_and_object_key_reordering(tmp_path: Path) -> None:
     payload = batch_result_to_dict(make_batch(tmp_path))
     reordered = dict(reversed(tuple(payload.items())))
