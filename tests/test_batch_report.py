@@ -204,6 +204,17 @@ def test_cli_verify_returns_two_for_noncanonical_batch_status(tmp_path: Path, ca
     assert "leading or trailing whitespace" in capsys.readouterr().err
 
 
+def test_cli_verify_returns_two_for_excessively_nested_json(tmp_path: Path, capsys) -> None:
+    source = tmp_path / "deep.json"
+    source.write_text(
+        '{"report_version":1,"extra":' + "[" * 5000 + "0" + "]" * 5000 + "}",
+        encoding="utf-8",
+    )
+
+    assert main(["verify", str(source)]) == 2
+    assert "exceeds the maximum nesting depth" in capsys.readouterr().err
+
+
 def test_batch_report_fingerprint_is_semantic_and_ignores_execution_provenance(
     tmp_path: Path,
 ) -> None:

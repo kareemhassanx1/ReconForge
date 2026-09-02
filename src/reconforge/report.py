@@ -298,6 +298,8 @@ def load_json_report(path: str | Path) -> ReconciliationResult:
         payload = json.loads(text, object_pairs_hook=_unique_object)
     except _DuplicateObjectKeyError as exc:
         raise InputError(f"{source}: invalid report JSON: {exc}") from exc
+    except RecursionError as exc:
+        raise InputError(f"{source}: report JSON exceeds the maximum nesting depth") from exc
     except json.JSONDecodeError as exc:
         raise InputError(
             f"{source}: invalid report JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}"

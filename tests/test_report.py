@@ -152,6 +152,19 @@ def test_json_report_loader_keeps_bom_compatibility(tmp_path: Path) -> None:
     assert load_json_report(source) == make_result()
 
 
+def test_json_report_loader_rejects_excessive_nesting_without_recursion_leak(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "deep.json"
+    source.write_text(
+        '{"report_version":1,"extra":' + "[" * 5000 + "0" + "]" * 5000 + "}",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(InputError, match="exceeds the maximum nesting depth"):
+        load_json_report(source)
+
+
 def test_report_parser_rejects_boolean_version_alias() -> None:
     report = result_to_dict(make_result())
     report["report_version"] = True
