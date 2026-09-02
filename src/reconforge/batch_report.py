@@ -202,7 +202,7 @@ def batch_report_from_dict(payload: Mapping[str, object]) -> BatchReport:
         _BATCH_REPORT_FIELDS,
         optional=frozenset({"execution"}),
     )
-    _required_text(report["status"], "batch report.status")
+    status = _required_text(report["status"], "batch report.status")
     _exact_object(report["summary"], "batch report.summary", _BATCH_SUMMARY_FIELDS)
     unmatched = _exact_object(
         report["unmatched_inputs"],
@@ -229,6 +229,7 @@ def batch_report_from_dict(payload: Mapping[str, object]) -> BatchReport:
         execution=execution,
     )
     _validate_summary(report["summary"], parsed)
+    _validate_status(status, parsed)
     return parsed
 
 
@@ -330,6 +331,12 @@ def _validate_summary(value: object, report: BatchReport) -> None:
             raise ValueError(
                 f"batch report.summary.{field} is {actual[field]}; expected {expected[field]}"
             )
+
+
+def _validate_status(value: str, report: BatchReport) -> None:
+    expected = "clean" if report.is_clean else "issues_found"
+    if value != expected:
+        raise ValueError(f"batch report.status is {value!r}; expected {expected!r}")
 
 
 def _required_text(value: object, label: str) -> str:

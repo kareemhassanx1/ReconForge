@@ -144,6 +144,14 @@ def test_batch_report_parser_recomputes_aggregate_summary(
         batch_report_from_dict(payload)
 
 
+def test_batch_report_parser_derives_status_from_complete_outcome(tmp_path: Path) -> None:
+    payload = batch_result_to_dict(make_batch(tmp_path))
+    payload["status"] = "clean"
+
+    with pytest.raises(ValueError, match="status is 'clean'; expected 'issues_found'"):
+        batch_report_from_dict(payload)
+
+
 def test_batch_report_model_canonicalizes_pair_and_unmatched_order(tmp_path: Path) -> None:
     result = make_batch(tmp_path)
     pair = batch_report_from_result(result).pairs[0]
