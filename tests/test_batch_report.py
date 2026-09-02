@@ -126,6 +126,24 @@ def test_batch_report_loader_reports_file_and_json_diagnostics(tmp_path: Path) -
         load_json_batch_report(malformed)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("issues", 99, r"summary\.issues is 99; expected 2"),
+        ("paired_inputs", True, "paired_inputs must be a non-negative integer"),
+        ("unmatched_left", -1, "unmatched_left must be a non-negative integer"),
+    ],
+)
+def test_batch_report_parser_recomputes_aggregate_summary(
+    tmp_path: Path, field: str, value: object, message: str
+) -> None:
+    payload = batch_result_to_dict(make_batch(tmp_path))
+    payload["summary"][field] = value
+
+    with pytest.raises(ValueError, match=message):
+        batch_report_from_dict(payload)
+
+
 def test_batch_report_model_canonicalizes_pair_and_unmatched_order(tmp_path: Path) -> None:
     result = make_batch(tmp_path)
     pair = batch_report_from_result(result).pairs[0]

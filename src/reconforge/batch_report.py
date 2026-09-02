@@ -222,12 +222,14 @@ def batch_report_from_dict(payload: Mapping[str, object]) -> BatchReport:
         if "execution" in report
         else None
     )
-    return BatchReport(
+    parsed = BatchReport(
         pairs=pairs,
         unmatched_left=unmatched_left,
         unmatched_right=unmatched_right,
         execution=execution,
     )
+    _validate_summary(report["summary"], parsed)
+    return parsed
 
 
 def load_json_batch_report(path: str | Path) -> BatchReport:
@@ -316,10 +318,30 @@ def _parse_report_pair(value: object, index: int) -> BatchReportPair:
     return BatchReportPair(name, left, right, result)
 
 
+def _validate_summary(value: object, report: BatchReport) -> None:
+    summary = _exact_object(value, "batch report.summary", _BATCH_SUMMARY_FIELDS)
+    actual = {
+        field: _nonnegative_integer(summary[field], f"batch report.summary.{field}")
+        for field in sorted(_BATCH_SUMMARY_FIELDS)
+    }
+    expected = batch_report_to_dict(report)["summary"]
+    for field in sorted(_BATCH_SUMMARY_FIELDS):
+        if actual[field] != expected[field]:
+            raise ValueError(
+                f"batch report.summary.{field} is {actual[field]}; expected {expected[field]}"
+            )
+
+
 def _required_text(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} must be a non-empty string")
     return value.strip()
+
+
+def _nonnegative_integer(value: object, location: str) -> int:
+    if type(value) is not int or value < 0:
+        raise ValueError(f"{location} must be a non-negative integer")
+    return value
 
 
 def _source_text(value: object, label: str) -> str:
