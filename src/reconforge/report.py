@@ -640,6 +640,10 @@ def _validate_key_arity(key: tuple[str | None, ...], expected: int, location: st
 
 def _validate_issue_consistency(result: ReconciliationResult) -> None:
     _require_unique_issue_values(
+        result.validation_violations,
+        "report.validation_violations",
+    )
+    _require_unique_issue_values(
         tuple((item.key, item.field) for item in result.differences),
         "report.differences",
     )

@@ -473,6 +473,19 @@ def test_report_rejects_duplicate_issue_identities(mutator, message: str) -> Non
         result_from_dict(report)
 
 
+def test_report_rejects_duplicate_validation_violations_with_consistent_summary() -> None:
+    report = result_to_dict(make_status_result(difference=False, violation=True))
+    report["validation_violations"].append(deepcopy(report["validation_violations"][0]))
+    report["summary"]["validation_violations"] = 2
+    report["summary"]["issues"] = 2
+
+    with pytest.raises(
+        ValueError,
+        match=r"validation_violations\[1\] duplicates the identity.*violations\[0\]",
+    ):
+        result_from_dict(report)
+
+
 @pytest.mark.parametrize(
     "mutator",
     [
