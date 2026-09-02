@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import reconforge
 from reconforge.batch import BatchPair, BatchPlan, reconcile_batch
 from reconforge.batch_report import (
     BatchExecution,
@@ -275,6 +276,15 @@ def test_cli_verify_checks_expected_batch_fingerprint(tmp_path: Path, capsys) ->
     different = "sha256:" + "0" * 64
     assert main(["verify", str(source), "--expect-fingerprint", different]) == 1
     assert json.loads(capsys.readouterr().out)["matches_expected"] is False
+
+
+def test_batch_report_verification_api_is_public() -> None:
+    assert reconforge.BATCH_REPORT_VERSION == 1
+    assert reconforge.BatchReport is BatchReport
+    assert reconforge.batch_report_from_dict is batch_report_from_dict
+    assert reconforge.batch_report_fingerprint is batch_report_fingerprint
+    assert reconforge.load_json_batch_report is load_json_batch_report
+    assert reconforge.load_saved_report is load_saved_report
 
 
 def test_batch_report_model_canonicalizes_pair_and_unmatched_order(tmp_path: Path) -> None:

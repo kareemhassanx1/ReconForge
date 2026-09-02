@@ -15,6 +15,19 @@ from reconforge.batch_checkpoint import (
     pair_fingerprint,
     reconcile_batch_resumable,
 )
+from reconforge.batch_report import (
+    BATCH_REPORT_VERSION,
+    BatchExecution,
+    BatchReport,
+    BatchReportPair,
+    batch_pair_fingerprints,
+    batch_report_fingerprint,
+    batch_report_from_dict,
+    batch_report_from_result,
+    batch_report_to_dict,
+    load_json_batch_report,
+    load_saved_report,
+)
 from reconforge.csvio import CsvReadOptions, read_csv_dataset
 from reconforge.errors import RunNotFoundError, RunStoreError
 from reconforge.exporters import (
@@ -97,8 +110,12 @@ from reconforge.validation import (
 __all__ = [
     "BATCH_MANIFEST_VERSION",
     "BATCH_CHECKPOINT_VERSION",
+    "BATCH_REPORT_VERSION",
+    "BatchExecution",
     "BatchPair",
     "BatchPlan",
+    "BatchReport",
+    "BatchReportPair",
     "BatchResult",
     "CsvReadOptions",
     "AllowedValuesRule",
@@ -161,9 +178,16 @@ __all__ = [
     "result_issue_to_dict",
     "result_issues",
     "result_fingerprint",
+    "batch_pair_fingerprints",
+    "batch_report_fingerprint",
+    "batch_report_from_dict",
+    "batch_report_from_result",
+    "batch_report_to_dict",
     "discover_directory_batch",
     "load_batch_manifest",
+    "load_json_batch_report",
     "load_json_report",
+    "load_saved_report",
     "load_project_config",
     "reconcile",
     "compare_results",
