@@ -17,6 +17,12 @@ from reconforge.batch import (
     reconcile_batch,
 )
 from reconforge.batch_checkpoint import reconcile_batch_resumable
+from reconforge.batch_report import (
+    BatchReport,
+    batch_report_fingerprint,
+    batch_report_to_dict,
+    load_saved_report,
+)
 from reconforge.errors import ReconForgeError
 from reconforge.exporters import (
     ReportFormat,
@@ -304,7 +310,7 @@ def build_parser() -> argparse.ArgumentParser:
         "verify",
         help="validate a saved report and calculate its semantic fingerprint",
     )
-    verify.add_argument("report", type=Path, help="canonical single-result JSON report")
+    verify.add_argument("report", type=Path, help="canonical single or batch JSON report")
     verify.add_argument(
         "--expect-fingerprint",
         metavar="SHA256",
@@ -541,7 +547,7 @@ def _run_diff(arguments: argparse.Namespace) -> int:
 
 
 def _run_verify(arguments: argparse.Namespace) -> int:
-    """Strictly validate one report and optionally check an expected fingerprint."""
+    """Strictly validate one single or batch report and check an optional fingerprint."""
 
     try:
         expected = arguments.expect_fingerprint
@@ -549,9 +555,17 @@ def _run_verify(arguments: argparse.Namespace) -> int:
             raise ValueError(
                 "expected fingerprint must use sha256 followed by 64 lowercase hex digits"
             )
-        result = load_json_report(arguments.report)
-        report = result_to_dict(result)
-        fingerprint = result_fingerprint(result)
+        saved = load_saved_report(arguments.report)
+        if isinstance(saved, BatchReport):
+            report = batch_report_to_dict(saved)
+            report_type = "batch"
+            version_field = "batch_report_version"
+            fingerprint = batch_report_fingerprint(saved)
+        else:
+            report = result_to_dict(saved)
+            report_type = "single"
+            version_field = "report_version"
+            fingerprint = result_fingerprint(saved)
         matches_expected = None if expected is None else hmac.compare_digest(fingerprint, expected)
     except (ReconForgeError, ValueError) as exc:
         print(f"reconforge: error: {exc}", file=sys.stderr)
@@ -560,7 +574,8 @@ def _run_verify(arguments: argparse.Namespace) -> int:
     payload = {
         "verification_version": 1,
         "valid": True,
-        "report_version": report["report_version"],
+        "report_type": report_type,
+        version_field: report[version_field],
         "status": report["status"],
         "summary": report["summary"],
         "fingerprint": fingerprint,

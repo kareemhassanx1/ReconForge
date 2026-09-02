@@ -17,6 +17,7 @@ from reconforge.batch_report import (
     load_json_batch_report,
     load_saved_report,
 )
+from reconforge.cli import main
 from reconforge.errors import InputError
 from reconforge.model import ReconciliationResult
 from reconforge.reconcile import ReconciliationConfig
@@ -222,6 +223,39 @@ def test_saved_report_loader_rejects_ambiguous_or_untyped_documents(
 
     with pytest.raises(InputError, match=message):
         load_saved_report(source)
+
+
+def test_cli_verify_supports_strict_batch_reports(tmp_path: Path, capsys) -> None:
+    source = tmp_path / "batch.json"
+    source.write_text(
+        json.dumps(batch_result_to_dict(make_batch(tmp_path)), ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    status = main(["verify", str(source)])
+
+    verified = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert verified["valid"] is True
+    assert verified["report_type"] == "batch"
+    assert verified["batch_report_version"] == 1
+    assert verified["status"] == "issues_found"
+    assert verified["summary"]["issues"] == 2
+    assert verified["fingerprint"].startswith("sha256:")
+
+
+def test_cli_verify_checks_expected_batch_fingerprint(tmp_path: Path, capsys) -> None:
+    source = tmp_path / "batch.json"
+    source.write_text(json.dumps(batch_result_to_dict(make_batch(tmp_path))), encoding="utf-8")
+    assert main(["verify", str(source)]) == 0
+    fingerprint = json.loads(capsys.readouterr().out)["fingerprint"]
+
+    assert main(["verify", str(source), "--expect-fingerprint", fingerprint]) == 0
+    assert json.loads(capsys.readouterr().out)["matches_expected"] is True
+
+    different = "sha256:" + "0" * 64
+    assert main(["verify", str(source), "--expect-fingerprint", different]) == 1
+    assert json.loads(capsys.readouterr().out)["matches_expected"] is False
 
 
 def test_batch_report_model_canonicalizes_pair_and_unmatched_order(tmp_path: Path) -> None:
