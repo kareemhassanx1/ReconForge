@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,9 @@ from reconforge.batch_report import (
     batch_report_from_dict,
     batch_report_from_result,
     batch_report_to_dict,
+    load_json_batch_report,
 )
+from reconforge.errors import InputError
 from reconforge.reconcile import ReconciliationConfig
 from reconforge.report import batch_result_to_dict
 
@@ -86,6 +89,41 @@ def test_batch_report_parser_rejects_invalid_envelope_and_nested_result(
 
     with pytest.raises(ValueError, match=message):
         batch_report_from_dict(payload)
+
+
+def test_batch_report_loader_accepts_bom_and_object_key_reordering(tmp_path: Path) -> None:
+    payload = batch_result_to_dict(make_batch(tmp_path))
+    reordered = dict(reversed(tuple(payload.items())))
+    source = tmp_path / "batch-report.json"
+    source.write_text(json.dumps(reordered, ensure_ascii=False), encoding="utf-8-sig")
+
+    loaded = load_json_batch_report(source)
+
+    assert batch_report_to_dict(loaded) == payload
+
+
+def test_batch_report_loader_rejects_duplicate_keys_at_any_depth(tmp_path: Path) -> None:
+    payload = batch_result_to_dict(make_batch(tmp_path))
+    text = json.dumps(payload).replace(
+        '"status": "issues_found"',
+        '"status": "issues_found", "status": "issues_found"',
+        1,
+    )
+    source = tmp_path / "duplicate.json"
+    source.write_text(text, encoding="utf-8")
+
+    with pytest.raises(InputError, match="duplicate key 'status'"):
+        load_json_batch_report(source)
+
+
+def test_batch_report_loader_reports_file_and_json_diagnostics(tmp_path: Path) -> None:
+    with pytest.raises(InputError, match="does not exist"):
+        load_json_batch_report(tmp_path / "missing.json")
+
+    malformed = tmp_path / "malformed.json"
+    malformed.write_text('{"batch_report_version":', encoding="utf-8")
+    with pytest.raises(InputError, match=r"line 1, column \d+"):
+        load_json_batch_report(malformed)
 
 
 def test_batch_report_model_canonicalizes_pair_and_unmatched_order(tmp_path: Path) -> None:

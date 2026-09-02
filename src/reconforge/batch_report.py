@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from json import JSONDecodeError
+from pathlib import Path
 from typing import Any
 
 from reconforge.batch import BatchResult
+from reconforge.errors import InputError
 from reconforge.model import ReconciliationResult
 from reconforge.report import result_from_dict, result_to_dict
 
@@ -226,6 +230,35 @@ def batch_report_from_dict(payload: Mapping[str, object]) -> BatchReport:
     )
 
 
+def load_json_batch_report(path: str | Path) -> BatchReport:
+    """Load a UTF-8 batch report with duplicate-key and semantic validation."""
+
+    source = Path(path)
+    try:
+        text = source.read_text(encoding="utf-8-sig")
+    except FileNotFoundError as exc:
+        raise InputError(f"batch reconciliation report does not exist: {source}") from exc
+    except UnicodeError as exc:
+        raise InputError(f"batch reconciliation report is not valid UTF-8: {source}") from exc
+    except OSError as exc:
+        raise InputError(f"cannot read batch reconciliation report {source}: {exc}") from exc
+    try:
+        payload = json.loads(text, object_pairs_hook=_unique_object)
+    except _DuplicateObjectKeyError as exc:
+        raise InputError(f"{source}: invalid batch report JSON: {exc}") from exc
+    except JSONDecodeError as exc:
+        raise InputError(
+            f"{source}: invalid batch report JSON at line {exc.lineno}, "
+            f"column {exc.colno}: {exc.msg}"
+        ) from exc
+    if not isinstance(payload, Mapping):
+        raise InputError(f"{source}: top-level batch report JSON value must be an object")
+    try:
+        return batch_report_from_dict(payload)
+    except (TypeError, ValueError) as exc:
+        raise InputError(f"{source}: invalid batch reconciliation report: {exc}") from exc
+
+
 def batch_report_to_dict(report: BatchReport) -> dict[str, Any]:
     """Serialize an immutable batch report into the version-one JSON model."""
 
@@ -348,6 +381,19 @@ def _validate_source_scope(
 
 def _sort_text(value: str) -> tuple[str, str]:
     return value.casefold(), value
+
+
+class _DuplicateObjectKeyError(ValueError):
+    pass
+
+
+def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise _DuplicateObjectKeyError(f"duplicate key {key!r}")
+        payload[key] = value
+    return payload
 
 
 def _object(value: object, location: str) -> dict[str, object]:
