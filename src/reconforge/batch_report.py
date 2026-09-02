@@ -13,7 +13,7 @@ from typing import Any
 from reconforge.batch import BatchResult
 from reconforge.errors import InputError
 from reconforge.model import ReconciliationResult
-from reconforge.report import result_from_dict, result_to_dict
+from reconforge.report import result_fingerprint, result_from_dict, result_to_dict
 
 BATCH_REPORT_VERSION = 1
 _EXECUTION_FIELDS = frozenset({"checkpoint", "executed_pairs", "reused_pairs"})
@@ -324,6 +324,14 @@ def batch_report_fingerprint(report: BatchReport) -> str:
         allow_nan=False,
     ).encode("utf-8")
     return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
+
+
+def batch_pair_fingerprints(report: BatchReport) -> tuple[tuple[str, str], ...]:
+    """Return stable per-pair fingerprints for targeted integrity diagnosis."""
+
+    if not isinstance(report, BatchReport):
+        raise TypeError("report must be a BatchReport instance")
+    return tuple((pair.name, result_fingerprint(pair.result)) for pair in report.pairs)
 
 
 def _parse_report_pair(value: object, index: int) -> BatchReportPair:

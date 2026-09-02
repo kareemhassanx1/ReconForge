@@ -19,6 +19,7 @@ from reconforge.batch import (
 from reconforge.batch_checkpoint import reconcile_batch_resumable
 from reconforge.batch_report import (
     BatchReport,
+    batch_pair_fingerprints,
     batch_report_fingerprint,
     batch_report_to_dict,
     load_saved_report,
@@ -561,11 +562,16 @@ def _run_verify(arguments: argparse.Namespace) -> int:
             report_type = "batch"
             version_field = "batch_report_version"
             fingerprint = batch_report_fingerprint(saved)
+            pair_fingerprints = [
+                {"name": name, "fingerprint": pair_fingerprint}
+                for name, pair_fingerprint in batch_pair_fingerprints(saved)
+            ]
         else:
             report = result_to_dict(saved)
             report_type = "single"
             version_field = "report_version"
             fingerprint = result_fingerprint(saved)
+            pair_fingerprints = None
         matches_expected = None if expected is None else hmac.compare_digest(fingerprint, expected)
     except (ReconForgeError, ValueError) as exc:
         print(f"reconforge: error: {exc}", file=sys.stderr)
@@ -582,6 +588,8 @@ def _run_verify(arguments: argparse.Namespace) -> int:
         "expected_fingerprint": expected,
         "matches_expected": matches_expected,
     }
+    if pair_fingerprints is not None:
+        payload["pair_fingerprints"] = pair_fingerprints
     print(json.dumps(payload, indent=2, ensure_ascii=False))
     return 1 if matches_expected is False else 0
 

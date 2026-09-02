@@ -10,6 +10,7 @@ from reconforge.batch_report import (
     BatchExecution,
     BatchReport,
     BatchReportPair,
+    batch_pair_fingerprints,
     batch_report_fingerprint,
     batch_report_from_dict,
     batch_report_from_result,
@@ -21,7 +22,7 @@ from reconforge.cli import main
 from reconforge.errors import InputError
 from reconforge.model import ReconciliationResult
 from reconforge.reconcile import ReconciliationConfig
-from reconforge.report import batch_result_to_dict, result_to_dict
+from reconforge.report import batch_result_to_dict, result_fingerprint, result_to_dict
 
 
 def write_file(root: Path, name: str, content: str) -> Path:
@@ -194,6 +195,16 @@ def test_batch_report_fingerprint_validates_public_input() -> None:
         batch_report_fingerprint(object())  # type: ignore[arg-type]
 
 
+def test_batch_pair_fingerprints_identify_each_nested_result(tmp_path: Path) -> None:
+    report = batch_report_from_result(make_batch(tmp_path))
+
+    fingerprints = batch_pair_fingerprints(report)
+
+    assert fingerprints == (("orders", result_fingerprint(report.pairs[0].result)),)
+    with pytest.raises(TypeError, match="must be a BatchReport"):
+        batch_pair_fingerprints(object())  # type: ignore[arg-type]
+
+
 def test_saved_report_loader_auto_detects_single_and_batch_reports(tmp_path: Path) -> None:
     batch = batch_report_from_result(make_batch(tmp_path))
     batch_path = tmp_path / "batch.json"
@@ -242,6 +253,14 @@ def test_cli_verify_supports_strict_batch_reports(tmp_path: Path, capsys) -> Non
     assert verified["status"] == "issues_found"
     assert verified["summary"]["issues"] == 2
     assert verified["fingerprint"].startswith("sha256:")
+    assert verified["pair_fingerprints"] == [
+        {
+            "name": "orders",
+            "fingerprint": result_fingerprint(
+                batch_report_from_result(make_batch(tmp_path)).pairs[0].result
+            ),
+        }
+    ]
 
 
 def test_cli_verify_checks_expected_batch_fingerprint(tmp_path: Path, capsys) -> None:
