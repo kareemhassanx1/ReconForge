@@ -28,7 +28,7 @@ added without coupling them to the command-line interface.
 - Export one canonical report model as stable JSON, analysis-ready CSV, or self-contained HTML.
 - Investigate saved JSON results with deterministic filters, sorting, facets, cursors, and exports.
 - Compare saved reports to identify added, moved, resolved, and unchanged issues.
-- Strictly verify saved report structure, semantics, and content fingerprints.
+- Strictly verify saved single and batch reports with semantic and per-pair fingerprints.
 - Return a non-zero CLI status when differences are found.
 
 ## Quick start
@@ -399,16 +399,27 @@ returns `2`.
 
 ## Report verification
 
-Treat saved JSON reports as untrusted input before investigation, automation, or archival:
+Treat saved single or batch JSON reports as untrusted input before investigation, automation, or
+archival:
 
 ```powershell
 reconforge verify reconciliation.json
+reconforge verify batch-reconciliation.json
 ```
 
 Verification rejects duplicate JSON keys, unknown or missing structural members, invalid recorded
 normalizers, comparison policies and validation rules, wrong composite-key arity, contradictory or
 duplicated issues, and summary or status values that do not match the report content. A valid
-report prints deterministic JSON containing its status, summary, and semantic SHA-256 fingerprint.
+report prints deterministic JSON containing its report type, status, summary, and semantic SHA-256
+fingerprint.
+
+For a batch report, verification recursively applies every single-report invariant to each named
+pair. It also rejects duplicate pair names or assigned sources, paired sources repeated as
+unmatched, malformed checkpoint provenance, incomplete executed/reused pair coverage, and any
+aggregate summary or status that cannot be derived from the nested results. Batch verification is
+offline: archived input and checkpoint paths are treated as recorded identities and do not need to
+exist. The verification response includes a fingerprint for every pair so a changed nested result
+can be located directly.
 
 Pin an expected result in an automated workflow:
 
@@ -418,10 +429,13 @@ reconforge verify reconciliation.json `
 ```
 
 The fingerprint is calculated from the canonical report model, so JSON whitespace, object-key
-order, and a UTF-8 BOM do not change it. A semantic value change does. Verification returns `0`
-for a valid report and matching expectation, `1` for a valid report whose fingerprint differs,
-and `2` for malformed input or an invalid expectation. The command is read-only and never changes
-the report.
+order, a UTF-8 BOM, and batch pair or unmatched-input ordering do not change it. A semantic value
+change does. Batch
+`execution` metadata is intentionally excluded: executing a pair now or reusing the same result
+from a trusted checkpoint produces the same semantic fingerprint. Verification returns `0` for a
+valid report and matching expectation, `1` for a valid report whose fingerprint differs, and `2`
+for malformed input or an invalid expectation. The command is read-only and never changes the
+report.
 
 ## Input formats
 
