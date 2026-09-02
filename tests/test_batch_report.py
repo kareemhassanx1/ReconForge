@@ -9,6 +9,7 @@ from reconforge.batch_report import (
     BatchExecution,
     BatchReport,
     BatchReportPair,
+    batch_report_from_dict,
     batch_report_from_result,
     batch_report_to_dict,
 )
@@ -47,6 +48,44 @@ def test_batch_report_model_round_trips_fresh_result_without_format_drift(tmp_pa
     assert batch_report_to_dict(model) == batch_result_to_dict(result, execution=execution)
     assert model.issue_count == 2
     assert not model.is_clean
+
+
+def test_batch_report_parser_round_trips_generated_report(tmp_path: Path) -> None:
+    result = make_batch(tmp_path)
+    payload = batch_result_to_dict(
+        result,
+        execution={
+            "checkpoint": str(tmp_path / "checkpoint.json"),
+            "executed_pairs": ["orders"],
+            "reused_pairs": [],
+        },
+    )
+
+    parsed = batch_report_from_dict(payload)
+
+    assert batch_report_to_dict(parsed) == payload
+
+
+@pytest.mark.parametrize(
+    ("mutate", "message"),
+    [
+        (lambda report: report.update(batch_report_version=2), "unsupported batch report version"),
+        (lambda report: report.update(extra=True), "contains unknown field.*extra"),
+        (lambda report: report.pop("pairs"), "missing required field.*pairs"),
+        (
+            lambda report: report["pairs"][0]["result"].update(status="clean"),
+            r"pairs\[0\]\.result.*report.status is 'clean'",
+        ),
+    ],
+)
+def test_batch_report_parser_rejects_invalid_envelope_and_nested_result(
+    tmp_path: Path, mutate, message: str
+) -> None:
+    payload = batch_result_to_dict(make_batch(tmp_path))
+    mutate(payload)
+
+    with pytest.raises(ValueError, match=message):
+        batch_report_from_dict(payload)
 
 
 def test_batch_report_model_canonicalizes_pair_and_unmatched_order(tmp_path: Path) -> None:

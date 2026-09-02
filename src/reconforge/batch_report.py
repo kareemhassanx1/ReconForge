@@ -8,10 +8,28 @@ from typing import Any
 
 from reconforge.batch import BatchResult
 from reconforge.model import ReconciliationResult
-from reconforge.report import result_to_dict
+from reconforge.report import result_from_dict, result_to_dict
 
 BATCH_REPORT_VERSION = 1
 _EXECUTION_FIELDS = frozenset({"checkpoint", "executed_pairs", "reused_pairs"})
+_BATCH_REPORT_FIELDS = frozenset(
+    {"batch_report_version", "status", "summary", "unmatched_inputs", "pairs"}
+)
+_BATCH_SUMMARY_FIELDS = frozenset(
+    {
+        "paired_inputs",
+        "clean_pairs",
+        "pairs_with_issues",
+        "matched_records",
+        "discrepancies",
+        "validation_violations",
+        "unmatched_left",
+        "unmatched_right",
+        "issues",
+    }
+)
+_UNMATCHED_FIELDS = frozenset({"left", "right"})
+_PAIR_FIELDS = frozenset({"name", "left", "right", "result"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +183,49 @@ def batch_report_from_result(
     )
 
 
+def batch_report_from_dict(payload: Mapping[str, object]) -> BatchReport:
+    """Parse the supported canonical batch-report structure into its semantic model."""
+
+    raw_report = _object(payload, "batch report")
+    version = raw_report.get("batch_report_version")
+    if type(version) is not int or version != BATCH_REPORT_VERSION:
+        raise ValueError(
+            f"unsupported batch report version {version!r}; expected {BATCH_REPORT_VERSION}"
+        )
+    report = _exact_object(
+        raw_report,
+        "batch report",
+        _BATCH_REPORT_FIELDS,
+        optional=frozenset({"execution"}),
+    )
+    _required_text(report["status"], "batch report.status")
+    _exact_object(report["summary"], "batch report.summary", _BATCH_SUMMARY_FIELDS)
+    unmatched = _exact_object(
+        report["unmatched_inputs"],
+        "batch report.unmatched_inputs",
+        _UNMATCHED_FIELDS,
+    )
+    unmatched_left = _report_string_array(unmatched["left"], "batch report.unmatched_inputs.left")
+    unmatched_right = _report_string_array(
+        unmatched["right"], "batch report.unmatched_inputs.right"
+    )
+    raw_pairs = report["pairs"]
+    if not isinstance(raw_pairs, list):
+        raise ValueError("batch report.pairs must be an array")
+    pairs = tuple(_parse_report_pair(value, index) for index, value in enumerate(raw_pairs))
+    execution = (
+        BatchExecution.from_mapping(_object(report["execution"], "batch report.execution"))
+        if "execution" in report
+        else None
+    )
+    return BatchReport(
+        pairs=pairs,
+        unmatched_left=unmatched_left,
+        unmatched_right=unmatched_right,
+        execution=execution,
+    )
+
+
 def batch_report_to_dict(report: BatchReport) -> dict[str, Any]:
     """Serialize an immutable batch report into the version-one JSON model."""
 
@@ -209,10 +270,28 @@ def batch_report_to_dict(report: BatchReport) -> dict[str, Any]:
     return payload
 
 
+def _parse_report_pair(value: object, index: int) -> BatchReportPair:
+    location = f"batch report.pairs[{index}]"
+    pair = _exact_object(value, location, _PAIR_FIELDS)
+    name = _required_text(pair["name"], f"{location}.name")
+    left = _source_text(pair["left"], f"{location}.left")
+    right = _source_text(pair["right"], f"{location}.right")
+    try:
+        result = result_from_dict(_object(pair["result"], f"{location}.result"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{location}.result: {exc}") from exc
+    return BatchReportPair(name, left, right, result)
+
+
 def _required_text(value: object, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} must be a non-empty string")
     return value.strip()
+
+
+def _source_text(value: object, label: str) -> str:
+    _require_source(value, label)
+    return value
 
 
 def _require_source(value: object, label: str) -> None:
@@ -224,6 +303,12 @@ def _string_array(value: object, label: str) -> tuple[str, ...]:
     if not isinstance(value, list | tuple):
         raise ValueError(f"batch execution {label} must be an array")
     return tuple(_required_text(item, f"batch execution {label} item") for item in value)
+
+
+def _report_string_array(value: object, location: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise ValueError(f"{location} must be an array")
+    return tuple(_source_text(item, f"{location}[{index}]") for index, item in enumerate(value))
 
 
 def _pair_names(values: tuple[str, ...], label: str) -> tuple[str, ...]:
@@ -263,3 +348,33 @@ def _validate_source_scope(
 
 def _sort_text(value: str) -> tuple[str, str]:
     return value.casefold(), value
+
+
+def _object(value: object, location: str) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{location} must be an object")
+    if any(not isinstance(key, str) for key in value):
+        raise ValueError(f"{location} keys must be strings")
+    return dict(value)
+
+
+def _exact_object(
+    value: object,
+    location: str,
+    required: frozenset[str],
+    *,
+    optional: frozenset[str] = frozenset(),
+) -> dict[str, object]:
+    payload = _object(value, location)
+    missing = sorted(required - payload.keys())
+    unknown = sorted(payload.keys() - required - optional)
+    if missing:
+        raise ValueError(
+            f"{location} is missing required field(s): "
+            + ", ".join(repr(field) for field in missing)
+        )
+    if unknown:
+        raise ValueError(
+            f"{location} contains unknown field(s): " + ", ".join(repr(field) for field in unknown)
+        )
+    return payload
