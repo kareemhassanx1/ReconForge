@@ -340,40 +340,9 @@ def batch_result_to_dict(
 ) -> dict[str, Any]:
     """Convert a batch result into a stable aggregate report."""
 
-    pair_reports = [
-        {
-            "name": item.pair.name,
-            "left": str(item.pair.left),
-            "right": str(item.pair.right),
-            "result": result_to_dict(item.result),
-        }
-        for item in result.pairs
-    ]
-    report: dict[str, Any] = {
-        "batch_report_version": 1,
-        "status": "clean" if result.is_clean else "issues_found",
-        "summary": {
-            "paired_inputs": len(result.pairs),
-            "clean_pairs": sum(item.result.is_clean for item in result.pairs),
-            "pairs_with_issues": sum(not item.result.is_clean for item in result.pairs),
-            "matched_records": sum(item.result.matched_count for item in result.pairs),
-            "discrepancies": sum(item.result.difference_count for item in result.pairs),
-            "validation_violations": sum(
-                item.result.validation_violation_count for item in result.pairs
-            ),
-            "unmatched_left": len(result.unmatched_left),
-            "unmatched_right": len(result.unmatched_right),
-            "issues": result.issue_count,
-        },
-        "unmatched_inputs": {
-            "left": [str(path) for path in result.unmatched_left],
-            "right": [str(path) for path in result.unmatched_right],
-        },
-        "pairs": pair_reports,
-    }
-    if execution is not None:
-        report["execution"] = dict(execution)
-    return report
+    from reconforge.batch_report import batch_report_from_result, batch_report_to_dict
+
+    return batch_report_to_dict(batch_report_from_result(result, execution=execution))
 
 
 def write_json_batch_report(
