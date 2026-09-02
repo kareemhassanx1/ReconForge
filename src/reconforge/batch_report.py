@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -304,6 +305,23 @@ def batch_report_to_dict(report: BatchReport) -> dict[str, Any]:
             "reused_pairs": list(report.execution.reused_pairs),
         }
     return payload
+
+
+def batch_report_fingerprint(report: BatchReport) -> str:
+    """Return a semantic checksum that excludes operational execution provenance."""
+
+    if not isinstance(report, BatchReport):
+        raise TypeError("report must be a BatchReport instance")
+    canonical_report = batch_report_to_dict(report)
+    canonical_report.pop("execution", None)
+    canonical = json.dumps(
+        canonical_report,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
 
 
 def _parse_report_pair(value: object, index: int) -> BatchReportPair:

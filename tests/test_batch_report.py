@@ -10,6 +10,7 @@ from reconforge.batch_report import (
     BatchExecution,
     BatchReport,
     BatchReportPair,
+    batch_report_fingerprint,
     batch_report_from_dict,
     batch_report_from_result,
     batch_report_to_dict,
@@ -150,6 +151,44 @@ def test_batch_report_parser_derives_status_from_complete_outcome(tmp_path: Path
 
     with pytest.raises(ValueError, match="status is 'clean'; expected 'issues_found'"):
         batch_report_from_dict(payload)
+
+
+def test_batch_report_fingerprint_is_semantic_and_ignores_execution_provenance(
+    tmp_path: Path,
+) -> None:
+    result = make_batch(tmp_path)
+    executed = batch_report_from_result(
+        result,
+        execution={
+            "checkpoint": str(tmp_path / "first.json"),
+            "executed_pairs": ["orders"],
+            "reused_pairs": [],
+        },
+    )
+    reused = batch_report_from_result(
+        result,
+        execution={
+            "checkpoint": str(tmp_path / "second.json"),
+            "executed_pairs": [],
+            "reused_pairs": ["orders"],
+        },
+    )
+
+    assert batch_report_fingerprint(executed) == batch_report_fingerprint(reused)
+    assert batch_report_fingerprint(executed).startswith("sha256:")
+    assert len(batch_report_fingerprint(executed)) == len("sha256:") + 64
+
+
+def test_batch_report_fingerprint_changes_with_reconciliation_content(tmp_path: Path) -> None:
+    report = batch_report_from_result(make_batch(tmp_path))
+    changed = BatchReport(report.pairs, report.unmatched_left + ("another.csv",))
+
+    assert batch_report_fingerprint(report) != batch_report_fingerprint(changed)
+
+
+def test_batch_report_fingerprint_validates_public_input() -> None:
+    with pytest.raises(TypeError, match="must be a BatchReport"):
+        batch_report_fingerprint(object())  # type: ignore[arg-type]
 
 
 def test_batch_report_model_canonicalizes_pair_and_unmatched_order(tmp_path: Path) -> None:
