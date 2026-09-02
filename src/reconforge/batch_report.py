@@ -92,7 +92,7 @@ class BatchExecution:
                 details.append("unknown: " + ", ".join(unknown))
             raise ValueError("invalid batch execution fields (" + "; ".join(details) + ")")
         return cls(
-            checkpoint=_required_text(value["checkpoint"], "batch execution checkpoint"),
+            checkpoint=_source_text(value["checkpoint"], "batch execution checkpoint"),
             executed_pairs=_string_array(value["executed_pairs"], "executed_pairs"),
             reused_pairs=_string_array(value["reused_pairs"], "reused_pairs"),
         )
@@ -203,7 +203,7 @@ def batch_report_from_dict(payload: Mapping[str, object]) -> BatchReport:
         _BATCH_REPORT_FIELDS,
         optional=frozenset({"execution"}),
     )
-    status = _required_text(report["status"], "batch report.status")
+    status = _canonical_text(report["status"], "batch report.status")
     _exact_object(report["summary"], "batch report.summary", _BATCH_SUMMARY_FIELDS)
     unmatched = _exact_object(
         report["unmatched_inputs"],
@@ -337,7 +337,7 @@ def batch_pair_fingerprints(report: BatchReport) -> tuple[tuple[str, str], ...]:
 def _parse_report_pair(value: object, index: int) -> BatchReportPair:
     location = f"batch report.pairs[{index}]"
     pair = _exact_object(value, location, _PAIR_FIELDS)
-    name = _required_text(pair["name"], f"{location}.name")
+    name = _canonical_text(pair["name"], f"{location}.name")
     left = _source_text(pair["left"], f"{location}.left")
     right = _source_text(pair["right"], f"{location}.right")
     try:
@@ -373,6 +373,13 @@ def _required_text(value: object, label: str) -> str:
     return value.strip()
 
 
+def _canonical_text(value: object, label: str) -> str:
+    text = _required_text(value, label)
+    if value != text:
+        raise ValueError(f"{label} must not have leading or trailing whitespace")
+    return text
+
+
 def _nonnegative_integer(value: object, location: str) -> int:
     if type(value) is not int or value < 0:
         raise ValueError(f"{location} must be a non-negative integer")
@@ -392,7 +399,7 @@ def _require_source(value: object, label: str) -> None:
 def _string_array(value: object, label: str) -> tuple[str, ...]:
     if not isinstance(value, list | tuple):
         raise ValueError(f"batch execution {label} must be an array")
-    return tuple(_required_text(item, f"batch execution {label} item") for item in value)
+    return tuple(_canonical_text(item, f"batch execution {label} item") for item in value)
 
 
 def _report_string_array(value: object, location: str) -> tuple[str, ...]:

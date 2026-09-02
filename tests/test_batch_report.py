@@ -166,6 +166,44 @@ def test_batch_report_parser_derives_status_from_complete_outcome(tmp_path: Path
         batch_report_from_dict(payload)
 
 
+@pytest.mark.parametrize(
+    ("location", "mutate"),
+    [
+        ("status", lambda report: report.update(status=" issues_found ")),
+        ("pairs\\[0\\]\\.name", lambda report: report["pairs"][0].update(name=" orders ")),
+        (
+            "execution executed_pairs item",
+            lambda report: report["execution"].update(executed_pairs=[" orders "]),
+        ),
+    ],
+)
+def test_batch_report_parser_rejects_noncanonical_semantic_whitespace(
+    tmp_path: Path, location: str, mutate
+) -> None:
+    payload = batch_result_to_dict(
+        make_batch(tmp_path),
+        execution={
+            "checkpoint": str(tmp_path / "checkpoint.json"),
+            "executed_pairs": ["orders"],
+            "reused_pairs": [],
+        },
+    )
+    mutate(payload)
+
+    with pytest.raises(ValueError, match=rf"{location}.*leading or trailing whitespace"):
+        batch_report_from_dict(payload)
+
+
+def test_cli_verify_returns_two_for_noncanonical_batch_status(tmp_path: Path, capsys) -> None:
+    payload = batch_result_to_dict(make_batch(tmp_path))
+    payload["status"] = " issues_found "
+    source = tmp_path / "batch.json"
+    source.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert main(["verify", str(source)]) == 2
+    assert "leading or trailing whitespace" in capsys.readouterr().err
+
+
 def test_batch_report_fingerprint_is_semantic_and_ignores_execution_provenance(
     tmp_path: Path,
 ) -> None:
