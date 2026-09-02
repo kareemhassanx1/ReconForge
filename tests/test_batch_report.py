@@ -15,10 +15,12 @@ from reconforge.batch_report import (
     batch_report_from_result,
     batch_report_to_dict,
     load_json_batch_report,
+    load_saved_report,
 )
 from reconforge.errors import InputError
+from reconforge.model import ReconciliationResult
 from reconforge.reconcile import ReconciliationConfig
-from reconforge.report import batch_result_to_dict
+from reconforge.report import batch_result_to_dict, result_to_dict
 
 
 def write_file(root: Path, name: str, content: str) -> Path:
@@ -189,6 +191,37 @@ def test_batch_report_fingerprint_changes_with_reconciliation_content(tmp_path: 
 def test_batch_report_fingerprint_validates_public_input() -> None:
     with pytest.raises(TypeError, match="must be a BatchReport"):
         batch_report_fingerprint(object())  # type: ignore[arg-type]
+
+
+def test_saved_report_loader_auto_detects_single_and_batch_reports(tmp_path: Path) -> None:
+    batch = batch_report_from_result(make_batch(tmp_path))
+    batch_path = tmp_path / "batch.json"
+    batch_path.write_text(json.dumps(batch_report_to_dict(batch)), encoding="utf-8")
+    single_path = tmp_path / "single.json"
+    single_path.write_text(json.dumps(result_to_dict(batch.pairs[0].result)), encoding="utf-8")
+
+    assert isinstance(load_saved_report(batch_path), BatchReport)
+    assert isinstance(load_saved_report(single_path), ReconciliationResult)
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        (
+            {"report_version": 1, "batch_report_version": 1},
+            "contains both report_version and batch_report_version",
+        ),
+        ({"version": 1}, "must contain either report_version or batch_report_version"),
+    ],
+)
+def test_saved_report_loader_rejects_ambiguous_or_untyped_documents(
+    tmp_path: Path, payload: object, message: str
+) -> None:
+    source = tmp_path / "report.json"
+    source.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(InputError, match=message):
+        load_saved_report(source)
 
 
 def test_batch_report_model_canonicalizes_pair_and_unmatched_order(tmp_path: Path) -> None:

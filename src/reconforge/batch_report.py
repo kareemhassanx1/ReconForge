@@ -237,30 +237,32 @@ def batch_report_from_dict(payload: Mapping[str, object]) -> BatchReport:
 def load_json_batch_report(path: str | Path) -> BatchReport:
     """Load a UTF-8 batch report with duplicate-key and semantic validation."""
 
-    source = Path(path)
-    try:
-        text = source.read_text(encoding="utf-8-sig")
-    except FileNotFoundError as exc:
-        raise InputError(f"batch reconciliation report does not exist: {source}") from exc
-    except UnicodeError as exc:
-        raise InputError(f"batch reconciliation report is not valid UTF-8: {source}") from exc
-    except OSError as exc:
-        raise InputError(f"cannot read batch reconciliation report {source}: {exc}") from exc
-    try:
-        payload = json.loads(text, object_pairs_hook=_unique_object)
-    except _DuplicateObjectKeyError as exc:
-        raise InputError(f"{source}: invalid batch report JSON: {exc}") from exc
-    except JSONDecodeError as exc:
-        raise InputError(
-            f"{source}: invalid batch report JSON at line {exc.lineno}, "
-            f"column {exc.colno}: {exc.msg}"
-        ) from exc
-    if not isinstance(payload, Mapping):
-        raise InputError(f"{source}: top-level batch report JSON value must be an object")
+    source, payload = _read_report_json(path)
     try:
         return batch_report_from_dict(payload)
     except (TypeError, ValueError) as exc:
         raise InputError(f"{source}: invalid batch reconciliation report: {exc}") from exc
+
+
+def load_saved_report(path: str | Path) -> ReconciliationResult | BatchReport:
+    """Load a canonical single or batch report using unambiguous version markers."""
+
+    source, payload = _read_report_json(path)
+    has_single_version = "report_version" in payload
+    has_batch_version = "batch_report_version" in payload
+    if has_single_version and has_batch_version:
+        raise InputError(
+            f"{source}: report is ambiguous because it contains both report_version "
+            "and batch_report_version"
+        )
+    try:
+        if has_batch_version:
+            return batch_report_from_dict(payload)
+        if has_single_version:
+            return result_from_dict(payload)
+    except (TypeError, ValueError) as exc:
+        raise InputError(f"{source}: invalid reconciliation report: {exc}") from exc
+    raise InputError(f"{source}: report must contain either report_version or batch_report_version")
 
 
 def batch_report_to_dict(report: BatchReport) -> dict[str, Any]:
@@ -428,6 +430,29 @@ def _validate_source_scope(
 
 def _sort_text(value: str) -> tuple[str, str]:
     return value.casefold(), value
+
+
+def _read_report_json(path: str | Path) -> tuple[Path, dict[str, object]]:
+    source = Path(path)
+    try:
+        text = source.read_text(encoding="utf-8-sig")
+    except FileNotFoundError as exc:
+        raise InputError(f"reconciliation report does not exist: {source}") from exc
+    except UnicodeError as exc:
+        raise InputError(f"reconciliation report is not valid UTF-8: {source}") from exc
+    except OSError as exc:
+        raise InputError(f"cannot read reconciliation report {source}: {exc}") from exc
+    try:
+        payload = json.loads(text, object_pairs_hook=_unique_object)
+    except _DuplicateObjectKeyError as exc:
+        raise InputError(f"{source}: invalid report JSON: {exc}") from exc
+    except JSONDecodeError as exc:
+        raise InputError(
+            f"{source}: invalid report JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise InputError(f"{source}: top-level report JSON value must be an object")
+    return source, payload
 
 
 class _DuplicateObjectKeyError(ValueError):
