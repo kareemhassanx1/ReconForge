@@ -8,7 +8,9 @@ import pytest
 from reconforge.batch import (
     BatchError,
     BatchPair,
+    BatchPairResult,
     BatchPlan,
+    BatchResult,
     discover_directory_batch,
     load_batch_manifest,
     reconcile_batch,
@@ -43,6 +45,30 @@ def test_directory_discovery_pairs_recursively_in_stable_order(tmp_path: Path) -
     ]
     assert plan.unmatched_left == ()
     assert plan.unmatched_right == ()
+
+
+def test_batch_result_rejects_duplicate_pair_names_case_insensitively(tmp_path: Path) -> None:
+    left = write_file(tmp_path, "left.csv", "id\n1\n")
+    right = write_file(tmp_path, "right.csv", "id\n1\n")
+    pair_result = reconcile_batch(
+        BatchPlan((BatchPair("orders", left, right),)),
+        ReconciliationConfig(key_fields=("id",)),
+    ).pairs[0]
+
+    with pytest.raises(ValueError, match="result pair names must be unique"):
+        BatchResult(
+            (
+                pair_result,
+                BatchPairResult(BatchPair("ORDERS", left, right), pair_result.result),
+            )
+        )
+
+
+def test_batch_models_reject_invalid_pair_members() -> None:
+    with pytest.raises(TypeError, match="plan pairs must be BatchPair"):
+        BatchPlan((object(),))  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="result pairs must be BatchPairResult"):
+        BatchResult((object(),))  # type: ignore[arg-type]
 
 
 def test_directory_discovery_reports_unmatched_files_explicitly(tmp_path: Path) -> None:

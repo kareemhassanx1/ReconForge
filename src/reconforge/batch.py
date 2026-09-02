@@ -27,8 +27,8 @@ class BatchPair:
     right: Path
 
     def __post_init__(self) -> None:
-        if not self.name.strip():
-            raise ValueError("batch pair names cannot be empty")
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError("batch pair names must be non-empty strings")
         object.__setattr__(self, "name", self.name.strip())
         object.__setattr__(self, "left", Path(self.left))
         object.__setattr__(self, "right", Path(self.right))
@@ -43,11 +43,14 @@ class BatchPlan:
     unmatched_right: tuple[Path, ...] = ()
 
     def __post_init__(self) -> None:
-        names = [pair.name.casefold() for pair in self.pairs]
+        pairs = tuple(self.pairs)
+        if any(not isinstance(pair, BatchPair) for pair in pairs):
+            raise TypeError("batch plan pairs must be BatchPair instances")
+        names = [pair.name.casefold() for pair in pairs]
         if len(names) != len(set(names)):
             raise ValueError("batch pair names must be unique")
         object.__setattr__(
-            self, "pairs", tuple(sorted(self.pairs, key=lambda pair: _sort_text(pair.name)))
+            self, "pairs", tuple(sorted(pairs, key=lambda pair: _sort_text(pair.name)))
         )
         object.__setattr__(
             self,
@@ -68,6 +71,12 @@ class BatchPairResult:
     pair: BatchPair
     result: ReconciliationResult
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.pair, BatchPair):
+            raise TypeError("batch pair result pair must be a BatchPair instance")
+        if not isinstance(self.result, ReconciliationResult):
+            raise TypeError("batch pair result result must be a ReconciliationResult instance")
+
 
 @dataclass(frozen=True, slots=True)
 class BatchResult:
@@ -78,10 +87,16 @@ class BatchResult:
     unmatched_right: tuple[Path, ...] = ()
 
     def __post_init__(self) -> None:
+        pairs = tuple(self.pairs)
+        if any(not isinstance(item, BatchPairResult) for item in pairs):
+            raise TypeError("batch result pairs must be BatchPairResult instances")
+        names = [item.pair.name.casefold() for item in pairs]
+        if len(names) != len(set(names)):
+            raise ValueError("batch result pair names must be unique")
         object.__setattr__(
             self,
             "pairs",
-            tuple(sorted(self.pairs, key=lambda item: _sort_text(item.pair.name))),
+            tuple(sorted(pairs, key=lambda item: _sort_text(item.pair.name))),
         )
         object.__setattr__(
             self,
