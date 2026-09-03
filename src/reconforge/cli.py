@@ -431,7 +431,12 @@ def _run_history(arguments: argparse.Namespace) -> int:
     """Execute local history lookup and listing commands."""
 
     try:
-        with RunStore(arguments.database) as store:
+        if arguments.history_command == "list":
+            if type(arguments.limit) is not int or not 1 <= arguments.limit <= 1000:
+                raise ValueError("history limit must be an integer from 1 to 1000")
+            if type(arguments.offset) is not int or arguments.offset < 0:
+                raise ValueError("history offset must be a non-negative integer")
+        with RunStore(arguments.database, create=False) as store:
             if arguments.history_command == "list":
                 runs = store.list_runs(limit=arguments.limit, offset=arguments.offset)
                 payload = {

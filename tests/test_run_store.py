@@ -172,6 +172,25 @@ def test_lookup_reports_missing_run_and_closed_store(tmp_path: Path) -> None:
         store.list_runs()
 
 
+def test_open_existing_rejects_missing_store_without_creating_it(tmp_path: Path) -> None:
+    database = tmp_path / "missing" / "history.sqlite"
+
+    with pytest.raises(RunStoreError, match="run store does not exist"):
+        RunStore(database, create=False)
+
+    assert not database.exists()
+    assert not database.parent.exists()
+
+
+def test_open_existing_reads_a_previously_created_store(tmp_path: Path) -> None:
+    database = tmp_path / "history.sqlite"
+    with RunStore(database) as store:
+        expected = record_clean_run(store)
+
+    with RunStore(database, create=False) as store:
+        assert store.get_run(expected.id) == expected
+
+
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
@@ -282,11 +301,24 @@ def test_cli_batch_records_pair_and_unmatched_inputs(tmp_path: Path, capsys) -> 
 
 def test_cli_history_returns_two_for_missing_run(tmp_path: Path, capsys) -> None:
     database = tmp_path / "history.sqlite"
+    with RunStore(database):
+        pass
 
     status = main(["history", "show", str(database), "99"])
 
     assert status == 2
     assert "run 99 was not found" in capsys.readouterr().err
+
+
+def test_cli_history_does_not_create_a_missing_database(tmp_path: Path, capsys) -> None:
+    database = tmp_path / "missing" / "history.sqlite"
+
+    status = main(["history", "list", str(database)])
+
+    assert status == 2
+    assert "run store does not exist" in capsys.readouterr().err
+    assert not database.exists()
+    assert not database.parent.exists()
 
 
 def test_cli_history_validates_pagination_bounds(tmp_path: Path, capsys) -> None:

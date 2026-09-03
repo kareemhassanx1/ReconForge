@@ -90,9 +90,13 @@ class RunStore:
         path: str | Path,
         *,
         clock: Callable[[], datetime] | None = None,
+        create: bool = True,
     ) -> None:
+        if type(create) is not bool:
+            raise TypeError("run store create must be a boolean")
         self.path = Path(path)
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._create = create
         self._connection: sqlite3.Connection | None = None
         self._open()
 
@@ -208,14 +212,22 @@ class RunStore:
 
     def _open(self) -> None:
         if self.path != Path(":memory:"):
-            try:
-                self.path.parent.mkdir(parents=True, exist_ok=True)
-            except OSError as exc:
-                raise RunStoreError(
-                    f"cannot create run store directory {self.path.parent}: {exc}"
-                ) from exc
+            if not self._create and not self.path.is_file():
+                raise RunStoreError(f"run store does not exist: {self.path}")
+            if self._create:
+                try:
+                    self.path.parent.mkdir(parents=True, exist_ok=True)
+                except OSError as exc:
+                    raise RunStoreError(
+                        f"cannot create run store directory {self.path.parent}: {exc}"
+                    ) from exc
         try:
-            connection = sqlite3.connect(self.path, isolation_level=None)
+            target: str | Path = self.path
+            use_uri = False
+            if not self._create and self.path != Path(":memory:"):
+                target = f"{self.path.resolve().as_uri()}?mode=rw"
+                use_uri = True
+            connection = sqlite3.connect(target, isolation_level=None, uri=use_uri)
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA busy_timeout = 5000")
