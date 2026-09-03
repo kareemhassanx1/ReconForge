@@ -33,12 +33,20 @@ added without coupling them to the command-line interface.
 
 ## Quick start
 
-Create two CSV files:
+Create `left.csv`:
 
 ```csv
 invoice_id,customer,amount,status
 INV-100,Northwind,125.00,paid
 INV-101,Contoso,80.00,pending
+```
+
+Create `right.csv`:
+
+```csv
+invoice_id,customer,amount,status
+INV-100,Northwind,125.00,paid
+INV-101,Contoso,82.50,paid
 ```
 
 Then install the package and compare them:
@@ -47,6 +55,11 @@ Then install the package and compare them:
 python -m pip install -e .
 reconforge compare left.csv right.csv --key invoice_id --output report.json
 ```
+
+This example intentionally changes the amount and status for `INV-101`. ReconForge writes the
+complete JSON result to `report.json` and returns status `1` because it found differences. It
+returns `0` when the inputs reconcile and `2` when an input, configuration, or output error
+prevents comparison.
 
 Select specific comparison fields with repeated `--compare` arguments:
 
@@ -154,10 +167,10 @@ reconforge compare accounting.export gateway.export --config reconforge.json
 ```
 
 Configuration version `1` accepts only the documented keys. Unknown or duplicate JSON keys,
-unsupported versions, wrong value types, duplicate field names, and invalid formats, normalizers,
-policies, or validation rules are rejected before either dataset is read. `inputs.format` sets
-both input formats; `left_format` and `right_format` can select them independently. `delimiter` is
-available for CSV inputs.
+unsupported versions, wrong value types, duplicate field names, duplicate canonical validation
+rules within a field, and invalid formats, normalizers, policies, or validation rules are rejected
+before either dataset is read. `inputs.format` sets both input formats; `left_format` and
+`right_format` can select them independently. `delimiter` is available for CSV inputs.
 
 Command-line options have explicit precedence:
 
@@ -195,6 +208,10 @@ input side, source, row number, field, original value, rule descriptor, and mess
 separately count `discrepancies`, `validation_violations`, and total `issues`. A validation-only run
 uses status `validation_violations_found`; a run containing both uses
 `differences_and_validation_violations_found`.
+
+Rules for one field must have distinct canonical descriptors. This also rejects equivalent
+numeric ranges written with different decimal spellings, preventing one logical rule from being
+evaluated and reported twice.
 
 The command exits with status `0` when both datasets reconcile, `1` when valid inputs contain
 differences or validation violations, and `2` when an input or configuration error prevents
@@ -261,6 +278,13 @@ The batch report includes `execution.executed_pairs` and `execution.reused_pairs
 checkpoint is used. Invalid, corrupt, or unsupported checkpoint files stop the command with exit
 status `2` instead of silently discarding recovery state.
 
+The current checkpoint document version is `2`. Version `1` checkpoints cannot be resumed safely
+with this release because fingerprint framing and checkpoint schema validation were hardened.
+ReconForge does not auto-upgrade or silently trust them: archive or remove the old checkpoint,
+then run the batch again to create a version `2` checkpoint from the current inputs. Version `2`
+loading also rejects duplicate, missing, or unknown JSON members and noncanonical SHA-256
+fingerprints before any stored pair result is reused.
+
 ## Local run history
 
 Add `--history-db` to either execution command to persist its status, summary, configuration
@@ -290,7 +314,9 @@ reconforge history show .reconforge/history.sqlite 42
 
 History stores reconciliation metadata and summaries, not the complete difference payload. Keep
 using `--output` when the full report needs to be retained. History is local-only and does not
-require a service or network connection.
+require a service or network connection. The `history list` and `history show` commands require an
+existing database; a misspelled or missing path returns status `2` and does not create an empty
+store.
 
 ## Report formats
 
@@ -315,6 +341,12 @@ that spreadsheet programs could interpret as formulas are prefixed safely. HTML 
 and no scripts, remote assets, timestamps, or network dependencies; all report values are escaped
 and the canonical JSON remains available in a collapsible section. Both formats are deterministic
 for the same canonical report.
+
+Report files written by `compare`, `batch`, `inspect`, and `diff` are staged in a unique temporary
+file beside the destination, flushed, and then atomically replaced. This avoids shared temporary
+file collisions and prevents a failed write from leaving a partial report or replacing an existing
+destination. Output filesystem failures produce a concise error and status `2` instead of an
+uncaught traceback. Checkpoint files use the same collision-safe write path.
 
 ## Result investigation
 
@@ -461,13 +493,22 @@ inputs; supplying it for JSON or NDJSON is treated as a configuration error.
 ## Development
 
 The runtime uses only the Python standard library. The development extra pins the test and lint
-tools used by the project:
+tools used by the project. From the repository root, an editable development setup and the complete
+local verification sequence are:
 
 ```powershell
 python -m pip install -e ".[dev]"
-python -m pytest
+python -m pip check
 python -m ruff check .
+python -m ruff format --check .
+python -m compileall -q src tests
+python -m pytest
 ```
+
+The GitHub Actions workflow runs the same dependency, lint, formatting, compilation, and test
+checks on Ubuntu with Python 3.11 and 3.12 for every pull request and every push to `main`. It uses
+read-only repository permissions and pins the installer, build backend, development tools, and
+action revisions to reduce toolchain drift.
 
 ## Design principles
 
