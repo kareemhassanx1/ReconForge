@@ -9,6 +9,7 @@ from json import JSONDecodeError
 from pathlib import Path
 
 from reconforge.errors import BatchError
+from reconforge.json_safety import JsonNestingTooDeepError, validate_json_nesting
 from reconforge.model import ReconciliationResult
 from reconforge.readers import DatasetReadOptions, read_dataset, supported_extensions
 from reconforge.reconcile import ReconciliationConfig, reconcile
@@ -267,8 +268,13 @@ def _read_manifest(source: Path) -> dict[str, object]:
         raise BatchError(f"cannot read batch manifest {source}: {exc}") from exc
     try:
         payload = json.loads(text, object_pairs_hook=_unique_object)
+        validate_json_nesting(payload)
     except _DuplicateObjectKey as exc:
         raise BatchError(f"{source}: {exc}") from exc
+    except (JsonNestingTooDeepError, RecursionError) as exc:
+        raise BatchError(
+            f"{source}: batch manifest JSON exceeds the maximum nesting depth"
+        ) from exc
     except JSONDecodeError as exc:
         raise BatchError(
             f"{source}: invalid JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}"

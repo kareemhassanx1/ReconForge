@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from reconforge.errors import InputError
+from reconforge.json_safety import MAX_JSON_NESTING_DEPTH
 from reconforge.model import Dataset, Record
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import (
@@ -157,7 +158,11 @@ def test_json_report_loader_rejects_excessive_nesting_without_recursion_leak(
 ) -> None:
     source = tmp_path / "deep.json"
     source.write_text(
-        '{"report_version":1,"extra":' + "[" * 5000 + "0" + "]" * 5000 + "}",
+        '{"report_version":1,"extra":'
+        + "[" * MAX_JSON_NESTING_DEPTH
+        + "0"
+        + "]" * MAX_JSON_NESTING_DEPTH
+        + "}",
         encoding="utf-8",
     )
 

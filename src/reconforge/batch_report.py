@@ -12,6 +12,7 @@ from typing import Any
 
 from reconforge.batch import BatchResult
 from reconforge.errors import InputError
+from reconforge.json_safety import JsonNestingTooDeepError, validate_json_nesting
 from reconforge.model import ReconciliationResult
 from reconforge.report import result_fingerprint, result_from_dict, result_to_dict
 
@@ -459,9 +460,10 @@ def _read_report_json(path: str | Path) -> tuple[Path, dict[str, object]]:
         raise InputError(f"cannot read reconciliation report {source}: {exc}") from exc
     try:
         payload = json.loads(text, object_pairs_hook=_unique_object)
+        validate_json_nesting(payload)
     except _DuplicateObjectKeyError as exc:
         raise InputError(f"{source}: invalid report JSON: {exc}") from exc
-    except RecursionError as exc:
+    except (JsonNestingTooDeepError, RecursionError) as exc:
         raise InputError(f"{source}: report JSON exceeds the maximum nesting depth") from exc
     except JSONDecodeError as exc:
         raise InputError(

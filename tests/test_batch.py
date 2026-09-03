@@ -17,6 +17,7 @@ from reconforge.batch import (
     reconcile_batch,
 )
 from reconforge.cli import main
+from reconforge.json_safety import MAX_JSON_NESTING_DEPTH
 from reconforge.reconcile import ReconciliationConfig
 from reconforge.report import batch_result_to_dict, write_json_batch_report
 
@@ -164,6 +165,15 @@ def test_manifest_validation_is_strict(tmp_path: Path, payload: object, message:
     manifest.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(BatchError, match=message):
+        load_batch_manifest(manifest)
+
+
+def test_manifest_rejects_excessive_json_nesting_deterministically(tmp_path: Path) -> None:
+    manifest = tmp_path / "batch.json"
+    nested = "[" * MAX_JSON_NESTING_DEPTH + "0" + "]" * MAX_JSON_NESTING_DEPTH
+    manifest.write_text(f'{{"version": 1, "extra": {nested}}}', encoding="utf-8")
+
+    with pytest.raises(BatchError, match="exceeds the maximum nesting depth"):
         load_batch_manifest(manifest)
 
 

@@ -11,6 +11,7 @@ from types import MappingProxyType
 
 from reconforge.errors import ConfigurationError
 from reconforge.exporters import ReportFormat
+from reconforge.json_safety import JsonNestingTooDeepError, validate_json_nesting
 from reconforge.normalization import FieldNormalizer
 from reconforge.policies import ComparisonPolicy
 from reconforge.readers import DatasetFormat
@@ -174,8 +175,13 @@ def _read_json_object(source: Path) -> dict[str, object]:
 
     try:
         payload = json.loads(text, object_pairs_hook=_unique_object)
+        validate_json_nesting(payload)
     except _DuplicateObjectKey as exc:
         raise ProjectConfigError(f"{source}: {exc}") from exc
+    except (JsonNestingTooDeepError, RecursionError) as exc:
+        raise ProjectConfigError(
+            f"{source}: project configuration JSON exceeds the maximum nesting depth"
+        ) from exc
     except JSONDecodeError as exc:
         raise ProjectConfigError(
             f"{source}: invalid JSON at line {exc.lineno}, column {exc.colno}: {exc.msg}"

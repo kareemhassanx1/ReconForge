@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from reconforge.exporters import ReportFormat
+from reconforge.json_safety import MAX_JSON_NESTING_DEPTH
 from reconforge.normalization import NormalizerKind
 from reconforge.policies import ComparisonPolicyKind
 from reconforge.project_config import (
@@ -161,6 +162,15 @@ def test_duplicate_object_keys_are_rejected(tmp_path: Path) -> None:
     path.write_text('{"version": 1, "version": 1}', encoding="utf-8")
 
     with pytest.raises(ProjectConfigError, match="duplicate key 'version'"):
+        load_project_config(path)
+
+
+def test_excessively_nested_project_config_is_rejected_deterministically(tmp_path: Path) -> None:
+    path = tmp_path / "deep.json"
+    nested = "[" * MAX_JSON_NESTING_DEPTH + "0" + "]" * MAX_JSON_NESTING_DEPTH
+    path.write_text(f'{{"version": 1, "extra": {nested}}}', encoding="utf-8")
+
+    with pytest.raises(ProjectConfigError, match="exceeds the maximum nesting depth"):
         load_project_config(path)
 
 

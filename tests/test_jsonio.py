@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from reconforge.errors import InputError
+from reconforge.json_safety import MAX_JSON_NESTING_DEPTH
 from reconforge.jsonio import JsonReadOptions, read_json_dataset, read_ndjson_dataset
 
 
@@ -120,6 +121,27 @@ def test_rejects_nested_json_values(tmp_path: Path, content: str) -> None:
 
     with pytest.raises(InputError, match="nested or unsupported JSON value"):
         read_json_dataset(path)
+
+
+@pytest.mark.parametrize(
+    ("reader", "name", "prefix", "suffix"),
+    [
+        (read_json_dataset, "deep.json", '[{"id":', "}]"),
+        (read_ndjson_dataset, "deep.ndjson", '{"id":', "}"),
+    ],
+)
+def test_rejects_excessive_json_nesting_deterministically(
+    tmp_path: Path,
+    reader,
+    name: str,
+    prefix: str,
+    suffix: str,
+) -> None:
+    nested = "[" * MAX_JSON_NESTING_DEPTH + "0" + "]" * MAX_JSON_NESTING_DEPTH
+    path = write_file(tmp_path, name, prefix + nested + suffix)
+
+    with pytest.raises(InputError, match="exceeds the maximum nesting depth"):
+        reader(path)
 
 
 def test_rejects_missing_fields_in_later_objects(tmp_path: Path) -> None:

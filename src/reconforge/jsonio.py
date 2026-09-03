@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from reconforge.errors import InputError
+from reconforge.json_safety import JsonNestingTooDeepError, validate_json_nesting
 from reconforge.model import CellValue, Dataset, Record
 
 
@@ -48,6 +49,8 @@ def read_json_dataset(
         ) from exc
     except _DuplicateJsonKey as exc:
         raise InputError(f"duplicate object key {exc.key!r} in {resolved}") from exc
+    except (JsonNestingTooDeepError, RecursionError) as exc:
+        raise InputError(f"JSON in {resolved} exceeds the maximum nesting depth") from exc
 
     if not isinstance(payload, list):
         raise InputError(f"JSON input must contain a top-level array of objects: {resolved}")
@@ -84,6 +87,10 @@ def read_ndjson_dataset(
             raise InputError(
                 f"duplicate object key {exc.key!r} in {resolved} at line {line_number}"
             ) from exc
+        except (JsonNestingTooDeepError, RecursionError) as exc:
+            raise InputError(
+                f"NDJSON in {resolved} at line {line_number} exceeds the maximum nesting depth"
+            ) from exc
         rows.append((line_number, value))
 
     if not rows:
@@ -92,11 +99,13 @@ def read_ndjson_dataset(
 
 
 def _decode_json(content: str) -> Any:
-    return json.loads(
+    payload = json.loads(
         content,
         parse_float=Decimal,
         object_pairs_hook=_unique_object,
     )
+    validate_json_nesting(payload)
+    return payload
 
 
 def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

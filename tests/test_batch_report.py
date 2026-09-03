@@ -21,6 +21,7 @@ from reconforge.batch_report import (
 )
 from reconforge.cli import main
 from reconforge.errors import InputError
+from reconforge.json_safety import MAX_JSON_NESTING_DEPTH
 from reconforge.model import ReconciliationResult
 from reconforge.reconcile import ReconciliationConfig
 from reconforge.report import batch_result_to_dict, result_fingerprint, result_to_dict
@@ -207,7 +208,11 @@ def test_cli_verify_returns_two_for_noncanonical_batch_status(tmp_path: Path, ca
 def test_cli_verify_returns_two_for_excessively_nested_json(tmp_path: Path, capsys) -> None:
     source = tmp_path / "deep.json"
     source.write_text(
-        '{"report_version":1,"extra":' + "[" * 5000 + "0" + "]" * 5000 + "}",
+        '{"report_version":1,"extra":'
+        + "[" * MAX_JSON_NESTING_DEPTH
+        + "0"
+        + "]" * MAX_JSON_NESTING_DEPTH
+        + "}",
         encoding="utf-8",
     )
 
