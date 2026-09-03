@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections import Counter
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from decimal import Decimal, InvalidOperation
@@ -168,6 +169,13 @@ class TextPatternRule:
 
 ValidationRule = RequiredRule | AllowedValuesRule | NumericRangeRule | TextPatternRule
 VALIDATION_RULE_TYPES = (RequiredRule, AllowedValuesRule, NumericRangeRule, TextPatternRule)
+
+
+def find_duplicate_validation_descriptors(descriptors: Iterable[str]) -> tuple[str, ...]:
+    """Return repeated canonical rule descriptors in deterministic order."""
+
+    counts = Counter(descriptors)
+    return tuple(sorted(descriptor for descriptor, count in counts.items() if count > 1))
 
 
 def validate_dataset_fields(

@@ -394,3 +394,34 @@ def test_validation_rule_fields_are_trimmed_and_must_be_unique(tmp_path: Path) -
 
     with pytest.raises(ProjectConfigError, match="contains duplicate field 'status'"):
         load_project_config(path)
+
+
+@pytest.mark.parametrize(
+    ("rules", "descriptor"),
+    [
+        ([{"type": "required"}, {"type": " REQUIRED "}], "required"),
+        (
+            [
+                {"type": "numeric_range", "minimum": "0.0"},
+                {"type": "numeric_range", "minimum": 0},
+            ],
+            r"numeric_range:\[0,\+inf\)",
+        ),
+    ],
+)
+def test_validation_rules_must_have_unique_canonical_descriptors(
+    tmp_path: Path, rules: list[dict[str, object]], descriptor: str
+) -> None:
+    path = write_config(
+        tmp_path,
+        {
+            "version": 1,
+            "reconciliation": {"validation_rules": {"amount": rules}},
+        },
+    )
+
+    with pytest.raises(
+        ProjectConfigError,
+        match=rf"validation_rules\['amount'\] must have unique rule descriptors.*{descriptor}",
+    ):
+        load_project_config(path)

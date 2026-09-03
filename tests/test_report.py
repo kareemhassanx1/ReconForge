@@ -368,6 +368,17 @@ def test_report_accepts_every_canonical_recorded_descriptor() -> None:
     assert dict(loaded.validation_rules)["amount"][-1] == r"pattern:\d+"
 
 
+def test_report_rejects_duplicate_recorded_validation_descriptors() -> None:
+    report = result_to_dict(make_result())
+    report["configuration"]["validation_rules"] = {"amount": ["required", "required"]}
+
+    with pytest.raises(
+        ValueError,
+        match=r"validation_rules\['amount'\] must contain unique descriptors.*required",
+    ):
+        result_from_dict(report)
+
+
 @pytest.mark.parametrize(
     ("mutator", "message"),
     [

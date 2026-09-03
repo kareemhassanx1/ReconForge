@@ -25,6 +25,7 @@ from reconforge.validation import (
     NumericRangeRule,
     RequiredRule,
     TextPatternRule,
+    find_duplicate_validation_descriptors,
 )
 
 _REPORT_FIELDS = frozenset(
@@ -501,6 +502,14 @@ def _validate_configuration_scope(
         raise ValueError(
             f"report.configuration.validation_rules entries must not be empty: {empty_rules!r}"
         )
+    for field, rules in validation_rules:
+        duplicate_descriptors = find_duplicate_validation_descriptors(rules)
+        if duplicate_descriptors:
+            raise ValueError(
+                "report.configuration.validation_rules"
+                f"[{field!r}] must contain unique descriptors; "
+                f"repeated: {list(duplicate_descriptors)!r}"
+            )
 
 
 def _validate_recorded_descriptors(

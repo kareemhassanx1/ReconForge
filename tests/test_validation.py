@@ -8,6 +8,7 @@ from reconforge.errors import ConfigurationError
 from reconforge.model import Dataset, Record
 from reconforge.normalization import FieldNormalizer, normalize_dataset_fields
 from reconforge.reconcile import ReconciliationConfig, reconcile
+from reconforge.report import result_from_dict, result_to_dict
 from reconforge.validation import (
     AllowedValuesRule,
     NumericRangeRule,
@@ -266,6 +267,25 @@ def test_validation_rules_are_recorded_in_stable_field_order() -> None:
     )
 
 
+def test_distinct_validation_rules_produce_a_strictly_verifiable_report() -> None:
+    result = reconcile(
+        make_dataset("left.csv", [row("A", status=None)]),
+        make_dataset("right.csv", [row("A", status="unexpected")]),
+        ReconciliationConfig(
+            key_fields=("id",),
+            validation_rules={"status": (RequiredRule(), AllowedValuesRule(("paid", "pending")))},
+        ),
+    )
+
+    restored = result_from_dict(result_to_dict(result))
+
+    assert restored == result
+    assert tuple(item.rule for item in restored.validation_violations) == (
+        "required",
+        'allowed:["paid","pending"]',
+    )
+
+
 def test_validation_rule_field_must_exist_on_both_inputs() -> None:
     left = Dataset("left", ("id", "status"), (Record("left", 2, {"id": "A", "status": "paid"}),))
     right = Dataset("right", ("id",), (Record("right", 2, {"id": "A"}),))
@@ -297,3 +317,26 @@ def test_reconciliation_config_rejects_invalid_rule_collections(
 ) -> None:
     with pytest.raises(exception, match=message):
         ReconciliationConfig(key_fields=("id",), validation_rules=rules)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("rules", "descriptor"),
+    [
+        ((RequiredRule(), RequiredRule()), "required"),
+        (
+            (NumericRangeRule(minimum="0.0"), NumericRangeRule(minimum=Decimal("0"))),
+            r"numeric_range:\[0,\+inf\)",
+        ),
+    ],
+)
+def test_reconciliation_config_rejects_duplicate_rule_descriptors(
+    rules: tuple[object, ...], descriptor: str
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match=rf"validation rules for field 'amount' must have unique descriptors.*{descriptor}",
+    ):
+        ReconciliationConfig(
+            key_fields=("id",),
+            validation_rules={"amount": rules},  # type: ignore[dict-item]
+        )

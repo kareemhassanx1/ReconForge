@@ -28,6 +28,7 @@ from reconforge.policies import (
 from reconforge.validation import (
     VALIDATION_RULE_TYPES,
     ValidationRule,
+    find_duplicate_validation_descriptors,
     validate_dataset_fields,
 )
 
@@ -115,6 +116,14 @@ class ReconciliationConfig:
             if invalid_rules:
                 raise TypeError(
                     f"validation rules for field {name!r} contain unsupported rule instances"
+                )
+            duplicate_descriptors = find_duplicate_validation_descriptors(
+                rule.descriptor for rule in field_rules
+            )
+            if duplicate_descriptors:
+                raise ValueError(
+                    f"validation rules for field {name!r} must have unique descriptors; "
+                    f"repeated: {list(duplicate_descriptors)!r}"
                 )
             validation_rules[name] = field_rules
         object.__setattr__(

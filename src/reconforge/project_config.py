@@ -20,6 +20,7 @@ from reconforge.validation import (
     RequiredRule,
     TextPatternRule,
     ValidationRule,
+    find_duplicate_validation_descriptors,
 )
 
 PROJECT_CONFIG_VERSION = 1
@@ -390,6 +391,15 @@ def _validation_rule_map(
             _parse_validation_rule(rule, source, field_name, index)
             for index, rule in enumerate(raw_rules)
         )
+        duplicate_descriptors = find_duplicate_validation_descriptors(
+            rule.descriptor for rule in rules
+        )
+        if duplicate_descriptors:
+            raise ProjectConfigError(
+                f"{source}: reconciliation.validation_rules[{field_name!r}] must have "
+                "unique rule descriptors; "
+                f"repeated: {list(duplicate_descriptors)!r}"
+            )
         configured[field_name] = rules
     return configured
 
