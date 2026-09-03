@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import pytest
 
+from reconforge.errors import ConfigurationError
 from reconforge.model import Dataset, Record
+from reconforge.normalization import FieldNormalizer
+from reconforge.policies import ComparisonPolicy
 from reconforge.query import IssueKind, result_issues
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.result_delta import (
@@ -15,6 +18,7 @@ from reconforge.result_delta import (
     filter_delta_issues,
     query_delta,
 )
+from reconforge.validation import RequiredRule, TextPatternRule
 
 
 def make_result(left_ids: tuple[str, ...], right_ids: tuple[str, ...]):
@@ -60,6 +64,20 @@ def make_moved_result(leading_rows: int, field: str = "value"):
         ),
     )
     return reconcile(left, right, ReconciliationConfig(key_fields=("id",)))
+
+
+def make_configured_result(config: ReconciliationConfig):
+    left = Dataset(
+        "left.csv",
+        ("id", "account_id", "value", "notes"),
+        (Record("left.csv", 2, {"id": "A", "account_id": "A", "value": "old", "notes": "ok"}),),
+    )
+    right = Dataset(
+        "right.csv",
+        ("id", "account_id", "value", "notes"),
+        (Record("right.csv", 2, {"id": "A", "account_id": "A", "value": "new", "notes": "ok"}),),
+    )
+    return reconcile(left, right, config)
 
 
 def test_compare_results_classifies_added_resolved_and_unchanged_issues() -> None:
@@ -117,6 +135,95 @@ def test_compare_results_never_mutates_source_results() -> None:
 
     assert result_issues(baseline) == baseline_issues
     assert result_issues(current) == current_issues
+
+
+@pytest.mark.parametrize(
+    ("current_config", "field"),
+    [
+        (
+            ReconciliationConfig(key_fields=("account_id",), compare_fields=("value",)),
+            "key_fields",
+        ),
+        (
+            ReconciliationConfig(key_fields=("id",), compare_fields=("notes",)),
+            "compared_fields",
+        ),
+        (
+            ReconciliationConfig(
+                key_fields=("id",), compare_fields=("value",), ignore_fields=("notes",)
+            ),
+            "ignored_fields",
+        ),
+        (
+            ReconciliationConfig(
+                key_fields=("id",), compare_fields=("value",), case_sensitive_keys=False
+            ),
+            "case_sensitive_keys",
+        ),
+        (
+            ReconciliationConfig(
+                key_fields=("id",),
+                compare_fields=("value",),
+                field_normalizers={"value": FieldNormalizer.text()},
+            ),
+            "field_normalizers",
+        ),
+        (
+            ReconciliationConfig(
+                key_fields=("id",),
+                compare_fields=("value",),
+                comparison_policies={"value": ComparisonPolicy.text()},
+            ),
+            "comparison_policies",
+        ),
+        (
+            ReconciliationConfig(
+                key_fields=("id",),
+                compare_fields=("value",),
+                validation_rules={"value": (RequiredRule(),)},
+            ),
+            "validation_rules",
+        ),
+    ],
+)
+def test_compare_results_rejects_incompatible_reconciliation_settings(
+    current_config: ReconciliationConfig,
+    field: str,
+) -> None:
+    baseline = make_configured_result(
+        ReconciliationConfig(key_fields=("id",), compare_fields=("value",))
+    )
+    current = make_configured_result(current_config)
+
+    with pytest.raises(
+        ConfigurationError,
+        match=rf"incompatible configuration field\(s\): .*'{field}'",
+    ):
+        compare_results(baseline, current)
+
+
+def test_compare_results_ignores_non_semantic_configuration_order() -> None:
+    baseline = make_configured_result(
+        ReconciliationConfig(
+            key_fields=("id",),
+            compare_fields=("value",),
+            ignore_fields=("account_id", "notes"),
+            validation_rules={"value": (RequiredRule(), TextPatternRule(".*"))},
+        )
+    )
+    current = make_configured_result(
+        ReconciliationConfig(
+            key_fields=("id",),
+            compare_fields=("value",),
+            ignore_fields=("notes", "account_id"),
+            validation_rules={"value": (TextPatternRule(".*"), RequiredRule())},
+        )
+    )
+
+    delta = compare_results(baseline, current)
+
+    assert len(delta.unchanged) == 1
+    assert delta.changed_count == 0
 
 
 def test_delta_filters_use_and_between_dimensions_and_or_within_them() -> None:

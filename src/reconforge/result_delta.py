@@ -9,6 +9,7 @@ from dataclasses import field as dataclass_field
 from enum import StrEnum
 from types import MappingProxyType
 
+from reconforge.errors import ConfigurationError
 from reconforge.model import ReconciliationResult, RecordKey
 from reconforge.query import (
     IssueKind,
@@ -191,12 +192,13 @@ def compare_results(
     baseline: ReconciliationResult,
     current: ReconciliationResult,
 ) -> ResultDelta:
-    """Compare two results using stable, multiplicity-aware issue fingerprints."""
+    """Compare compatible results using stable, multiplicity-aware issue fingerprints."""
 
     if not isinstance(baseline, ReconciliationResult):
         raise TypeError("baseline must be a ReconciliationResult instance")
     if not isinstance(current, ReconciliationResult):
         raise TypeError("current must be a ReconciliationResult instance")
+    _validate_compatible_configurations(baseline, current)
     baseline_issues = result_issues(baseline)
     current_issues = result_issues(current)
     buckets: dict[str, deque[tuple[int, ResultIssue]]] = defaultdict(deque)
@@ -348,3 +350,40 @@ def _build_delta_facets(issues: tuple[DeltaIssue, ...]) -> DeltaFacets:
 
 def _sortable_key(key: RecordKey) -> tuple[str, ...]:
     return tuple("" if component is None else component for component in key)
+
+
+def _validate_compatible_configurations(
+    baseline: ReconciliationResult,
+    current: ReconciliationResult,
+) -> None:
+    baseline_configuration = _comparison_configuration(baseline)
+    current_configuration = _comparison_configuration(current)
+    incompatible = [
+        name
+        for name in baseline_configuration
+        if baseline_configuration[name] != current_configuration[name]
+    ]
+    if incompatible:
+        raise ConfigurationError(
+            "cannot compare results produced by different reconciliation settings; "
+            f"incompatible configuration field(s): {incompatible!r}"
+        )
+
+
+def _comparison_configuration(result: ReconciliationResult) -> dict[str, object]:
+    """Return the semantic settings that define comparable issue identities."""
+
+    return {
+        # Key order defines the meaning of every component in a composite key.
+        "key_fields": result.key_fields,
+        # Ordering does not affect comparison semantics for these field groups.
+        "compared_fields": frozenset(result.compared_fields),
+        "ignored_fields": frozenset(result.ignored_fields),
+        "case_sensitive_keys": result.case_sensitive_keys,
+        "field_normalizers": frozenset(result.field_normalizers),
+        "comparison_policies": frozenset(result.comparison_policies),
+        # Rule execution order affects report order, but not issue identity.
+        "validation_rules": frozenset(
+            (field, frozenset(descriptors)) for field, descriptors in result.validation_rules
+        ),
+    }
