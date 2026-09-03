@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from reconforge.atomic_io import atomic_write_text
 from reconforge.batch import BatchResult
 from reconforge.errors import InputError
 from reconforge.model import (
@@ -328,13 +329,8 @@ def _result_status(result: ReconciliationResult) -> str:
 def write_json_report(result: ReconciliationResult, destination: str | Path) -> Path:
     """Write a report atomically and return its resolved destination."""
 
-    path = Path(destination)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.tmp")
     payload = json.dumps(result_to_dict(result), indent=2, ensure_ascii=False) + "\n"
-    temporary.write_text(payload, encoding="utf-8")
-    temporary.replace(path)
-    return path.resolve()
+    return atomic_write_text(destination, payload)
 
 
 def batch_result_to_dict(
@@ -357,9 +353,6 @@ def write_json_batch_report(
 ) -> Path:
     """Write a batch report atomically and return its resolved destination."""
 
-    path = Path(destination)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.tmp")
     payload = (
         json.dumps(
             batch_result_to_dict(result, execution=execution),
@@ -368,9 +361,7 @@ def write_json_batch_report(
         )
         + "\n"
     )
-    temporary.write_text(payload, encoding="utf-8")
-    temporary.replace(path)
-    return path.resolve()
+    return atomic_write_text(destination, payload)
 
 
 def _object(value: object, location: str) -> dict[str, object]:

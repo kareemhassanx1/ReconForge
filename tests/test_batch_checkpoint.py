@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-import reconforge.batch_checkpoint as checkpoint_module
+import reconforge.atomic_io as atomic_io_module
 from reconforge.batch import BatchPair, BatchPlan
 from reconforge.batch_checkpoint import (
     BATCH_CHECKPOINT_VERSION,
@@ -461,7 +461,7 @@ def test_failed_atomic_replace_preserves_checkpoint_and_cleans_temp_file(
     def fail_replace(source: object, destination: object) -> None:
         raise OSError("simulated replace failure")
 
-    monkeypatch.setattr(checkpoint_module.os, "replace", fail_replace)
+    monkeypatch.setattr(atomic_io_module.os, "replace", fail_replace)
 
     with pytest.raises(BatchCheckpointError, match="simulated replace failure"):
         reconcile_batch_resumable(plan, config, checkpoint)

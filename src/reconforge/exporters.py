@@ -7,10 +7,10 @@ import html
 import io
 import json
 from collections.abc import Iterable, Mapping
-from contextlib import suppress
 from enum import StrEnum
 from pathlib import Path
 
+from reconforge.atomic_io import atomic_write_text
 from reconforge.errors import ConfigurationError
 
 
@@ -68,18 +68,8 @@ def write_report(
 ) -> Path:
     """Render and atomically write a canonical report."""
 
-    path = Path(destination)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
     payload = render_report(report, format)
-    try:
-        temporary.write_text(payload, encoding="utf-8", newline="\n")
-        temporary.replace(path)
-    except OSError:
-        with suppress(OSError):
-            temporary.unlink(missing_ok=True)
-        raise
-    return path.resolve()
+    return atomic_write_text(destination, payload)
 
 
 def infer_report_format(path: str | Path) -> ReportFormat | None:

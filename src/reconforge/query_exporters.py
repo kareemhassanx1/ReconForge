@@ -6,9 +6,9 @@ import csv
 import html
 import io
 import json
-from contextlib import suppress
 from pathlib import Path
 
+from reconforge.atomic_io import atomic_write_text
 from reconforge.exporters import ReportFormat
 from reconforge.query import ResultPage, SourceRow, result_page_to_dict
 
@@ -35,18 +35,8 @@ def write_result_page(
 ) -> Path:
     """Render and atomically write a result investigation page."""
 
-    path = Path(destination)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp")
     payload = render_result_page(page, format)
-    try:
-        temporary.write_text(payload, encoding="utf-8", newline="\n")
-        temporary.replace(path)
-    except OSError:
-        with suppress(OSError):
-            temporary.unlink(missing_ok=True)
-        raise
-    return path.resolve()
+    return atomic_write_text(destination, payload)
 
 
 def render_result_page_csv(page: ResultPage) -> str:

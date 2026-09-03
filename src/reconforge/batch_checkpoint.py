@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import tempfile
 from collections.abc import Callable, Mapping
-from contextlib import suppress
 from dataclasses import dataclass
 from json import JSONDecodeError
 from pathlib import Path
 
+from reconforge.atomic_io import atomic_write_text
 from reconforge.batch import BatchPair, BatchPairResult, BatchPlan, BatchResult
 from reconforge.errors import BatchCheckpointError
 from reconforge.model import ReconciliationResult
@@ -365,33 +363,10 @@ def _write_checkpoint(path: Path, entries: Mapping[str, Mapping[str, object]]) -
     except (TypeError, ValueError) as exc:
         raise BatchCheckpointError(f"cannot serialize batch checkpoint {path}: {exc}") from exc
 
-    temporary: Path | None = None
-    descriptor: int | None = None
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        descriptor, temporary_name = tempfile.mkstemp(
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-        )
-        temporary = Path(temporary_name)
-        destination = os.fdopen(descriptor, "w", encoding="utf-8", newline="\n")
-        descriptor = None
-        with destination:
-            destination.write(serialized)
-            destination.flush()
-            os.fsync(destination.fileno())
-        os.replace(temporary, path)
-        temporary = None
+        atomic_write_text(path, serialized)
     except OSError as exc:
         raise BatchCheckpointError(f"cannot write batch checkpoint {path}: {exc}") from exc
-    finally:
-        if descriptor is not None:
-            with suppress(OSError):
-                os.close(descriptor)
-        if temporary is not None:
-            with suppress(OSError):
-                temporary.unlink(missing_ok=True)
 
 
 def _validated_entry(value: object, name: str) -> dict[str, object]:
