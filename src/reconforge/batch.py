@@ -308,12 +308,15 @@ def _required_string(payload: Mapping[str, object], key: str, source: Path, loca
 
 
 def _resolve_manifest_path(source: Path, value: str, location: str, side: str) -> Path:
-    candidate = Path(value)
-    resolved = (
-        (source.parent / candidate).resolve()
-        if not candidate.is_absolute()
-        else candidate.resolve()
-    )
+    try:
+        candidate = Path(value)
+        resolved = (
+            (source.parent / candidate).resolve()
+            if not candidate.is_absolute()
+            else candidate.resolve()
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise BatchError(f"{source}: {location}.{side} input path is invalid: {value!r}") from exc
     if not resolved.exists():
         raise BatchError(f"{source}: {location}.{side} input does not exist: {resolved}")
     if not resolved.is_file():

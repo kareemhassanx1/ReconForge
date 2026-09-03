@@ -167,6 +167,28 @@ def test_manifest_validation_is_strict(tmp_path: Path, payload: object, message:
         load_batch_manifest(manifest)
 
 
+def test_manifest_rejects_invalid_input_paths_as_batch_errors(tmp_path: Path) -> None:
+    manifest = tmp_path / "batch.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "pairs": [
+                    {
+                        "name": "invalid",
+                        "left": "bad\x00path.csv",
+                        "right": "right.csv",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BatchError, match=r"pairs\[0\]\.left input path is invalid"):
+        load_batch_manifest(manifest)
+
+
 def test_batch_execution_and_report_aggregate_pair_and_unmatched_issues(tmp_path: Path) -> None:
     clean_left = write_file(tmp_path, "clean-left.csv", "id,value\n1,A\n")
     clean_right = write_file(tmp_path, "clean-right.csv", "id,value\n1,A\n")
