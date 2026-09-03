@@ -364,15 +364,14 @@ def _run_compare(arguments: argparse.Namespace) -> int:
             if arguments.history_db
             else None
         )
-    except (ReconForgeError, ValueError) as exc:
+        if arguments.output:
+            destination = write_report(report, arguments.output, settings.report_format)
+            print(_summary(report, destination, stored))
+        else:
+            print(render_report(report, settings.report_format), end="")
+    except (OSError, ReconForgeError, ValueError) as exc:
         print(f"reconforge: error: {exc}", file=sys.stderr)
         return 2
-
-    if arguments.output:
-        destination = write_report(report, arguments.output, settings.report_format)
-        print(_summary(report, destination, stored))
-    else:
-        print(render_report(report, settings.report_format), end="")
 
     return 0 if result.is_clean else 1
 
@@ -417,15 +416,14 @@ def _run_batch(arguments: argparse.Namespace) -> int:
             )
         report = batch_result_to_dict(result, execution=execution)
         stored = _record_batch_run(arguments.history_db, report) if arguments.history_db else None
-    except (ReconForgeError, ValueError) as exc:
+        if arguments.output:
+            destination = write_report(report, arguments.output, settings.report_format)
+            print(_batch_summary(report, destination, stored))
+        else:
+            print(render_report(report, settings.report_format), end="")
+    except (OSError, ReconForgeError, ValueError) as exc:
         print(f"reconforge: error: {exc}", file=sys.stderr)
         return 2
-
-    if arguments.output:
-        destination = write_report(report, arguments.output, settings.report_format)
-        print(_batch_summary(report, destination, stored))
-    else:
-        print(render_report(report, settings.report_format), end="")
     return 0 if result.is_clean else 1
 
 

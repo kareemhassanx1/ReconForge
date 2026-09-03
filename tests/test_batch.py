@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import reconforge.cli as cli_module
 from reconforge.batch import (
     BatchError,
     BatchPair,
@@ -258,3 +259,34 @@ def test_cli_batch_rejects_mixed_manifest_and_directory_modes(tmp_path: Path, ca
 
     assert status == 2
     assert "cannot be combined" in capsys.readouterr().err
+
+
+def test_cli_batch_reports_output_filesystem_failures(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    left = tmp_path / "left"
+    right = tmp_path / "right"
+    left.mkdir()
+    right.mkdir()
+    write_file(left, "orders.csv", "id,value\n1,A\n")
+    write_file(right, "orders.csv", "id,value\n1,A\n")
+
+    def fail_write(*args, **kwargs):
+        raise OSError("simulated disk failure")
+
+    monkeypatch.setattr(cli_module, "write_report", fail_write)
+
+    status = main(
+        [
+            "batch",
+            str(left),
+            str(right),
+            "--key",
+            "id",
+            "--output",
+            str(tmp_path / "out.json"),
+        ]
+    )
+
+    assert status == 2
+    assert capsys.readouterr().err == "reconforge: error: simulated disk failure\n"

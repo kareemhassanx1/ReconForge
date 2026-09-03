@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import reconforge.cli as cli_module
 from reconforge.cli import main
 
 
@@ -55,6 +56,25 @@ def test_compare_returns_one_and_writes_difference_report(
     assert "1 reconciliation discrepancy" in captured.out
     assert "0 validation violation" in captured.out
     assert json.loads(output.read_text(encoding="utf-8"))["status"] == "differences_found"
+
+
+def test_compare_reports_output_filesystem_failures(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    left = write_file(tmp_path, "left.csv", "id,amount\nA,10\n")
+    right = write_file(tmp_path, "right.csv", "id,amount\nA,10\n")
+
+    def fail_write(*args, **kwargs):
+        raise OSError("simulated disk failure")
+
+    monkeypatch.setattr(cli_module, "write_report", fail_write)
+
+    status = main(
+        ["compare", str(left), str(right), "--key", "id", "--output", str(tmp_path / "out.json")]
+    )
+
+    assert status == 2
+    assert capsys.readouterr().err == "reconforge: error: simulated disk failure\n"
 
 
 def test_compare_returns_two_for_invalid_input(tmp_path: Path, capsys) -> None:
