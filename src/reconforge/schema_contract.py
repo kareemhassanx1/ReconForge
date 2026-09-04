@@ -596,6 +596,7 @@ def _validate_dataset_shape(dataset: Dataset) -> None:
     _source_text(dataset.source, "dataset source")
     for index, header in enumerate(dataset.headers):
         _field_name(header, f"dataset header[{index}]")
+    headers = set(dataset.headers)
     rows: set[int] = set()
     for index, record in enumerate(dataset.records):
         if not isinstance(record, Record):
@@ -609,6 +610,11 @@ def _validate_dataset_shape(dataset: Dataset) -> None:
                 raw_field,
                 f"dataset record at row {record.row_number} field name",
             )
+            if field not in headers:
+                raise ValueError(
+                    f"dataset record at row {record.row_number} contains field {field!r} "
+                    "that is absent from the dataset headers"
+                )
             if value is not None and not isinstance(value, str):
                 raise TypeError(
                     f"dataset record at row {record.row_number} field {field!r} "

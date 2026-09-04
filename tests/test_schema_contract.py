@@ -318,6 +318,20 @@ def test_validation_rejects_ambiguous_programmatic_dataset_values() -> None:
         validate_dataset_contract(dataset, DatasetContract({"id": FieldContract()}))
 
 
+def test_validation_rejects_record_fields_absent_from_headers() -> None:
+    dataset = Dataset(
+        "data.csv",
+        ("id",),
+        (Record("data.csv", 2, {"id": "1", "undeclared": "hidden"}),),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"row 2 contains field 'undeclared'.*absent from the dataset headers",
+    ):
+        validate_dataset_contract(dataset, DatasetContract({"id": FieldContract()}))
+
+
 def test_validation_never_mutates_dataset_values() -> None:
     values = {"id": "001", "amount": "1.50", "state": "new"}
     dataset = make_dataset((values,))
