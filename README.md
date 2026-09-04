@@ -29,6 +29,8 @@ added without coupling them to the command-line interface.
 - Investigate saved JSON results with deterministic filters, sorting, facets, cursors, and exports.
 - Compare saved reports to identify added, moved, resolved, and unchanged issues.
 - Strictly verify saved single and batch reports with semantic and per-pair fingerprints.
+- Profile one dataset with bounded, deterministic type, cardinality, range, and value summaries.
+- Infer and enforce versioned dataset contracts with machine-readable violations.
 - Return a non-zero CLI status when differences are found.
 
 ## Quick start
@@ -216,6 +218,58 @@ evaluated and reported twice.
 The command exits with status `0` when both datasets reconcile, `1` when valid inputs contain
 differences or validation violations, and `2` when an input or configuration error prevents
 comparison.
+
+## Dataset profiling and contracts
+
+Profile a CSV, JSON, or NDJSON dataset before designing a reconciliation. The profile reports
+record and field counts, nullability, distinctness, lexical value types, string lengths, numeric
+and date ranges, and bounded representative values. Stable ordering and a semantic SHA-256
+fingerprint make profiles suitable for review and change detection:
+
+```powershell
+reconforge profile accounting.csv --top-values 10 --examples 5 --output profile.html
+```
+
+JSON is the default stdout format. An `.html` or `.csv` output suffix selects that format, or use
+`--report-format` explicitly. Limits from `0` through `1000` bound retained values, so profiling a
+high-cardinality dataset does not create an unbounded report. CSV cells are protected from formula
+execution and HTML content is escaped.
+
+Infer a versioned JSON contract from a representative dataset, then validate later exports:
+
+```powershell
+reconforge contract infer accounting.csv --output accounting-contract.json
+reconforge contract check next-accounting.csv accounting-contract.json `
+  --output contract-report.json
+```
+
+Inference always records the observed fields and lexical types. Its defaults deliberately avoid
+sample-specific promises: uniqueness, observed numeric bounds, text-length bounds, and exact
+allowed values are enabled only when requested. For a controlled reference dataset, opt into
+those constraints explicitly:
+
+```powershell
+reconforge contract infer accounting.csv `
+  --infer-unique `
+  --infer-numeric-bounds `
+  --infer-text-lengths `
+  --allowed-values-limit 20 `
+  --output accounting-contract.json
+```
+
+Use `--allow-extra-fields` when future exports may add columns, `--optional-fields` when declared
+columns may be absent, and `--permissive-nulls` when nullability should not be inferred from the
+sample. Contract definitions use an exact version-one schema and reject unknown or duplicate JSON
+keys, unsupported versions, contradictory constraints, non-canonical values, and excessive JSON
+nesting.
+
+Contract checks collect missing and unexpected fields plus every applicable row-level violation.
+Constraints cover nullability, lexical types, exact allowed values, full-match regular expressions,
+text lengths, inclusive decimal bounds, and uniqueness. The command returns `0` for a conforming
+dataset, `1` when the dataset is readable but violates the contract, and `2` when input, contract,
+or output processing fails. Contract reports support deterministic JSON, analysis-ready CSV, and
+self-contained HTML. The Python API can calculate a stable semantic fingerprint for a canonical
+contract result.
 
 ## Batch reconciliation
 

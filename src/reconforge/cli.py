@@ -24,6 +24,13 @@ from reconforge.batch_report import (
     batch_report_to_dict,
     load_saved_report,
 )
+from reconforge.contract_codec import contract_to_dict, load_json_contract, write_json_contract
+from reconforge.contract_inference import ContractInferenceOptions, infer_dataset_contract
+from reconforge.contract_report import (
+    contract_result_to_dict,
+    render_contract_report,
+    write_contract_report,
+)
 from reconforge.errors import ReconForgeError
 from reconforge.exporters import (
     ReportFormat,
@@ -33,6 +40,8 @@ from reconforge.exporters import (
 )
 from reconforge.normalization import FieldNormalizer
 from reconforge.policies import ComparisonPolicy
+from reconforge.profile_report import render_profile_report, write_profile_report
+from reconforge.profiling import ProfileOptions, profile_dataset
 from reconforge.project_config import ProjectConfig, load_project_config
 from reconforge.query import (
     IssueKind,
@@ -60,6 +69,7 @@ from reconforge.result_delta import (
 )
 from reconforge.result_delta_exporters import render_delta_page, write_delta_page
 from reconforge.run_store import RunInput, RunStore, StoredRun, stored_run_to_dict
+from reconforge.schema_contract import validate_dataset_contract
 
 _REPORT_FINGERPRINT_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
 
@@ -317,6 +327,98 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="SHA256",
         help="return status 1 unless the report matches this sha256 fingerprint",
     )
+
+    profile = subcommands.add_parser(
+        "profile",
+        help="profile field types, cardinality, ranges, and representative values",
+    )
+    profile.add_argument("dataset", type=Path, help="dataset to profile")
+    _add_dataset_read_arguments(profile)
+    profile.add_argument(
+        "--top-values",
+        type=int,
+        default=10,
+        help="most frequent distinct values to retain per field (0-1000)",
+    )
+    profile.add_argument(
+        "--examples",
+        type=int,
+        default=5,
+        help="sorted representative values to retain per field (0-1000)",
+    )
+    profile.add_argument("--output", type=Path, help="atomically write the profile")
+    profile.add_argument(
+        "--report-format",
+        metavar="FORMAT",
+        help="output format: json, csv, or html; otherwise inferred from --output",
+    )
+
+    contract = subcommands.add_parser(
+        "contract",
+        help="infer or enforce a versioned dataset contract",
+    )
+    contract_commands = contract.add_subparsers(dest="contract_command", required=True)
+    contract_infer = contract_commands.add_parser(
+        "infer",
+        help="infer a conservative contract from one dataset",
+    )
+    contract_infer.add_argument("dataset", type=Path, help="dataset used for inference")
+    _add_dataset_read_arguments(contract_infer)
+    contract_infer.add_argument(
+        "--allow-extra-fields",
+        action="store_true",
+        help="allow fields not observed by this inferred contract",
+    )
+    contract_infer.add_argument(
+        "--optional-fields",
+        action="store_true",
+        help="do not require observed fields to exist in future datasets",
+    )
+    contract_infer.add_argument(
+        "--permissive-nulls",
+        action="store_true",
+        help="allow nulls even in fields where this dataset contains none",
+    )
+    contract_infer.add_argument(
+        "--infer-unique",
+        action="store_true",
+        help="mark fields unique when every observed non-null value is distinct",
+    )
+    contract_infer.add_argument(
+        "--infer-numeric-bounds",
+        action="store_true",
+        help="enforce observed inclusive minima and maxima for numeric fields",
+    )
+    contract_infer.add_argument(
+        "--infer-text-lengths",
+        action="store_true",
+        help="enforce observed minimum and maximum lengths for text fields",
+    )
+    contract_infer.add_argument(
+        "--allowed-values-limit",
+        type=int,
+        default=0,
+        help="infer exact allowed values for cardinalities at or below this limit",
+    )
+    contract_infer.add_argument(
+        "--output",
+        type=Path,
+        help="atomically write the inferred JSON contract instead of stdout",
+    )
+
+    contract_check = contract_commands.add_parser(
+        "check",
+        help="validate a dataset against a versioned JSON contract",
+    )
+    contract_check.add_argument("dataset", type=Path, help="dataset to validate")
+    contract_check.add_argument("definition", type=Path, help="JSON dataset contract")
+    _add_dataset_read_arguments(contract_check)
+    contract_check.add_argument("--output", type=Path, help="atomically write the result report")
+    contract_check.add_argument(
+        "--report-format",
+        metavar="FORMAT",
+        help="output format: json, csv, or html; otherwise inferred from --output",
+    )
     return parser
 
 
@@ -338,6 +440,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_diff(arguments)
     if arguments.command == "verify":
         return _run_verify(arguments)
+    if arguments.command == "profile":
+        return _run_profile(arguments)
+    if arguments.command == "contract":
+        return _run_contract(arguments)
     parser.error(f"unsupported command: {arguments.command}")
     return 2
 
@@ -597,6 +703,117 @@ def _run_verify(arguments: argparse.Namespace) -> int:
     return 1 if matches_expected is False else 0
 
 
+def _run_profile(arguments: argparse.Namespace) -> int:
+    """Profile one dataset and render its bounded deterministic statistics."""
+
+    try:
+        dataset = read_dataset(arguments.dataset, _dataset_read_options(arguments))
+        profile = profile_dataset(
+            dataset,
+            ProfileOptions(
+                top_values_limit=arguments.top_values,
+                examples_limit=arguments.examples,
+            ),
+        )
+        report_format = _effective_report_format(
+            arguments.report_format,
+            None,
+            arguments.output,
+        )
+        if arguments.output:
+            destination = write_profile_report(profile, arguments.output, report_format)
+            rendered = None
+        else:
+            destination = None
+            rendered = render_profile_report(profile, report_format)
+    except (OSError, ReconForgeError, ValueError) as exc:
+        print(f"reconforge: error: {exc}", file=sys.stderr)
+        return 2
+
+    if destination is not None:
+        print(
+            f"profiled {profile.record_count} record(s) across {len(profile.fields)} field(s); "
+            f"report: {destination}"
+        )
+    else:
+        print(rendered, end="")
+    return 0
+
+
+def _run_contract(arguments: argparse.Namespace) -> int:
+    """Infer a contract or check a dataset against an existing definition."""
+
+    if arguments.contract_command == "infer":
+        return _run_contract_infer(arguments)
+    if arguments.contract_command == "check":
+        return _run_contract_check(arguments)
+    raise ValueError(f"unsupported contract command: {arguments.contract_command}")
+
+
+def _run_contract_infer(arguments: argparse.Namespace) -> int:
+    try:
+        dataset = read_dataset(arguments.dataset, _dataset_read_options(arguments))
+        contract = infer_dataset_contract(
+            dataset,
+            ContractInferenceOptions(
+                allow_extra_fields=arguments.allow_extra_fields,
+                required_fields=not arguments.optional_fields,
+                infer_nullability=not arguments.permissive_nulls,
+                infer_uniqueness=arguments.infer_unique,
+                infer_numeric_bounds=arguments.infer_numeric_bounds,
+                infer_text_lengths=arguments.infer_text_lengths,
+                allowed_values_limit=arguments.allowed_values_limit,
+            ),
+        )
+        if arguments.output:
+            destination = write_json_contract(contract, arguments.output)
+            rendered = None
+        else:
+            destination = None
+            rendered = json.dumps(
+                contract_to_dict(contract),
+                indent=2,
+                ensure_ascii=False,
+            )
+    except (OSError, ReconForgeError, ValueError) as exc:
+        print(f"reconforge: error: {exc}", file=sys.stderr)
+        return 2
+
+    if destination is not None:
+        print(f"inferred contract for {len(contract.fields)} field(s); contract: {destination}")
+    else:
+        print(rendered)
+    return 0
+
+
+def _run_contract_check(arguments: argparse.Namespace) -> int:
+    try:
+        dataset = read_dataset(arguments.dataset, _dataset_read_options(arguments))
+        contract = load_json_contract(arguments.definition)
+        result = validate_dataset_contract(dataset, contract)
+        report_format = _effective_report_format(
+            arguments.report_format,
+            None,
+            arguments.output,
+        )
+        if arguments.output:
+            destination = write_contract_report(result, arguments.output, report_format)
+            rendered = None
+        else:
+            destination = None
+            rendered = render_contract_report(result, report_format)
+    except (OSError, ReconForgeError, ValueError) as exc:
+        print(f"reconforge: error: {exc}", file=sys.stderr)
+        return 2
+
+    if destination is not None:
+        status = contract_result_to_dict(result)["status"]
+        print(f"{status}: {result.issue_count} contract issue(s); report: {destination}")
+    else:
+        print(rendered, end="")
+    return 0 if result.is_valid else 1
+
+
 def _resolve_execution_settings(arguments: argparse.Namespace) -> _ExecutionSettings:
     project = load_project_config(arguments.config) if arguments.config else ProjectConfig()
     left_format = _effective_format(
@@ -691,6 +908,29 @@ def _add_batch_reconciliation_arguments(batch: argparse.ArgumentParser) -> None:
         "--history-db",
         type=Path,
         help="record run metadata and summary in this local SQLite database",
+    )
+
+
+def _add_dataset_read_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the format-neutral reader options used by single-dataset commands."""
+
+    parser.add_argument(
+        "--format",
+        metavar="FORMAT",
+        help="input format: csv, json, or ndjson; otherwise inferred from the path",
+    )
+    parser.add_argument(
+        "--delimiter",
+        help="one-character CSV delimiter; valid only for CSV input",
+    )
+
+
+def _dataset_read_options(arguments: argparse.Namespace) -> DatasetReadOptions:
+    """Resolve reader options for a command that consumes one dataset."""
+
+    return DatasetReadOptions(
+        format=DatasetFormat.named(arguments.format) if arguments.format else None,
+        delimiter=arguments.delimiter,
     )
 
 

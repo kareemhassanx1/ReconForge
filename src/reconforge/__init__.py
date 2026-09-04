@@ -28,6 +28,27 @@ from reconforge.batch_report import (
     load_json_batch_report,
     load_saved_report,
 )
+from reconforge.contract_codec import (
+    CONTRACT_VERSION,
+    contract_from_dict,
+    contract_to_dict,
+    load_json_contract,
+    write_json_contract,
+)
+from reconforge.contract_inference import (
+    ContractInferenceOptions,
+    infer_contract_from_profile,
+    infer_dataset_contract,
+)
+from reconforge.contract_report import (
+    CONTRACT_REPORT_VERSION,
+    contract_result_fingerprint,
+    contract_result_from_dict,
+    contract_result_to_dict,
+    load_json_contract_report,
+    render_contract_report,
+    write_contract_report,
+)
 from reconforge.csvio import CsvReadOptions, read_csv_dataset
 from reconforge.errors import RunNotFoundError, RunStoreError
 from reconforge.exporters import (
@@ -39,6 +60,21 @@ from reconforge.exporters import (
 from reconforge.model import Dataset, ReconciliationResult, Record, ValidationViolation
 from reconforge.normalization import FieldNormalizer, NormalizerKind
 from reconforge.policies import ComparisonPolicy, ComparisonPolicyKind
+from reconforge.profile_report import render_profile_report, write_profile_report
+from reconforge.profiling import (
+    PROFILE_VERSION,
+    DatasetProfile,
+    FieldProfile,
+    ProfileOptions,
+    ValueFrequency,
+    ValueKind,
+    classify_value,
+    load_json_profile,
+    profile_dataset,
+    profile_fingerprint,
+    profile_from_dict,
+    profile_to_dict,
+)
 from reconforge.project_config import (
     PROJECT_CONFIG_VERSION,
     ProjectConfig,
@@ -97,6 +133,15 @@ from reconforge.run_store import (
     RunStore,
     StoredRun,
     stored_run_to_dict,
+)
+from reconforge.schema_contract import (
+    ContractResult,
+    ContractValueType,
+    ContractViolation,
+    ContractViolationCode,
+    DatasetContract,
+    FieldContract,
+    validate_dataset_contract,
 )
 from reconforge.validation import (
     AllowedValuesRule,
@@ -203,6 +248,42 @@ __all__ = [
     "write_report",
     "write_delta_page",
     "write_result_page",
+    "CONTRACT_REPORT_VERSION",
+    "CONTRACT_VERSION",
+    "PROFILE_VERSION",
+    "ContractInferenceOptions",
+    "ContractResult",
+    "ContractValueType",
+    "ContractViolation",
+    "ContractViolationCode",
+    "DatasetContract",
+    "DatasetProfile",
+    "FieldContract",
+    "FieldProfile",
+    "ProfileOptions",
+    "ValueFrequency",
+    "ValueKind",
+    "classify_value",
+    "contract_from_dict",
+    "contract_result_fingerprint",
+    "contract_result_from_dict",
+    "contract_result_to_dict",
+    "contract_to_dict",
+    "infer_contract_from_profile",
+    "infer_dataset_contract",
+    "load_json_contract",
+    "load_json_contract_report",
+    "load_json_profile",
+    "profile_dataset",
+    "profile_fingerprint",
+    "profile_from_dict",
+    "profile_to_dict",
+    "render_contract_report",
+    "render_profile_report",
+    "validate_dataset_contract",
+    "write_contract_report",
+    "write_json_contract",
+    "write_profile_report",
 ]
 
 __version__ = "0.1.0"
