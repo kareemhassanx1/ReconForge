@@ -163,6 +163,4 @@ def next_expected_run(last_scheduled_at: datetime, interval: timedelta) -> datet
 def breached_run_ids(assessment: JobAssessment) -> tuple[str, ...]:
     """Return the stable identifiers of individually non-compliant runs."""
 
-    return tuple(
-        item.run.run_id for item in assessment.runs if not item.compliant
-    )
+    return tuple(item.run.run_id for item in assessment.runs if not item.compliant)

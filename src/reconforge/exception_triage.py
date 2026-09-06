@@ -159,9 +159,7 @@ def triage_counts(queue: Iterable[TriagedException]) -> dict[str, int]:
     return counts
 
 
-def top_exception_ids(
-    queue: Iterable[TriagedException], *, limit: int = 10
-) -> tuple[str, ...]:
+def top_exception_ids(queue: Iterable[TriagedException], *, limit: int = 10) -> tuple[str, ...]:
     """Return a bounded operator shortlist while preserving queue order."""
 
     if limit < 0:

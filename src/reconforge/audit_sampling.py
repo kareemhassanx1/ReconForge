@@ -172,7 +172,5 @@ def sample_manifest(plan: SamplingPlan) -> tuple[dict[str, str], ...]:
 def sampling_fingerprint(plan: SamplingPlan) -> str:
     """Hash the selected record identities for later audit comparison."""
 
-    material = "\n".join(
-        f"{item.record.record_id}:{item.rank}" for item in plan.selected
-    )
+    material = "\n".join(f"{item.record.record_id}:{item.rank}" for item in plan.selected)
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
