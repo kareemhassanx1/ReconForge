@@ -18,6 +18,7 @@ from reconforge.model import (
     ReconciliationResult,
     Record,
     RecordKey,
+    record_key_sort_key,
 )
 from reconforge.normalization import FieldNormalizer, normalize_dataset_fields
 from reconforge.policies import (
@@ -401,5 +402,5 @@ def _compare_record_pair(
     return differences
 
 
-def _sortable_key(key: RecordKey) -> tuple[str, ...]:
-    return tuple("" if value is None else value for value in key)
+def _sortable_key(key: RecordKey) -> tuple[tuple[bool, str], ...]:
+    return record_key_sort_key(key)

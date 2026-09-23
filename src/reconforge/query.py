@@ -15,7 +15,7 @@ from enum import StrEnum
 from types import MappingProxyType
 
 from reconforge.errors import ConfigurationError
-from reconforge.model import CellValue, ReconciliationResult, RecordKey
+from reconforge.model import CellValue, ReconciliationResult, RecordKey, record_key_sort_key
 
 _CURSOR_VERSION = 1
 
@@ -522,5 +522,5 @@ def _key_to_list(key: RecordKey) -> list[CellValue]:
     return list(key)
 
 
-def _sortable_key(key: RecordKey) -> tuple[str, ...]:
-    return tuple("" if value is None else value for value in key)
+def _sortable_key(key: RecordKey) -> tuple[tuple[bool, str], ...]:
+    return record_key_sort_key(key)

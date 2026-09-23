@@ -10,6 +10,12 @@ CellValue = str | None
 RecordKey = tuple[CellValue, ...]
 
 
+def record_key_sort_key(key: RecordKey) -> tuple[tuple[bool, str], ...]:
+    """Order null before strings without conflating it with an empty string."""
+
+    return tuple((value is not None, value if value is not None else "") for value in key)
+
+
 @dataclass(frozen=True, slots=True)
 class Record:
     """One normalized source row with its original location."""

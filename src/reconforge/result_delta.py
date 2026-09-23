@@ -10,7 +10,7 @@ from enum import StrEnum
 from types import MappingProxyType
 
 from reconforge.errors import ConfigurationError
-from reconforge.model import ReconciliationResult, RecordKey
+from reconforge.model import ReconciliationResult, RecordKey, record_key_sort_key
 from reconforge.query import (
     IssueKind,
     ResultIssue,
@@ -348,8 +348,8 @@ def _build_delta_facets(issues: tuple[DeltaIssue, ...]) -> DeltaFacets:
     )
 
 
-def _sortable_key(key: RecordKey) -> tuple[str, ...]:
-    return tuple("" if component is None else component for component in key)
+def _sortable_key(key: RecordKey) -> tuple[tuple[bool, str], ...]:
+    return record_key_sort_key(key)
 
 
 def _validate_compatible_configurations(
