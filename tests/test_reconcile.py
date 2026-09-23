@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from reconforge.model import Dataset, Record
 from reconforge.reconcile import ReconciliationConfig, reconcile
 
@@ -197,3 +199,41 @@ def test_key_fields_must_be_unique() -> None:
         assert "must be unique" in str(exc)
     else:
         raise AssertionError("expected duplicate key fields to be rejected")
+
+
+def test_dataset_rejects_aliased_source_rows_before_values_can_be_overwritten() -> None:
+    with pytest.raises(ValueError, match="row numbers must be unique"):
+        Dataset(
+            "export.csv",
+            ("id", "amount"),
+            (
+                Record("export.csv", 2, {"id": "A", "amount": "10"}),
+                Record("export.csv", 2, {"id": "B", "amount": "20"}),
+            ),
+        )
+
+
+@pytest.mark.parametrize("row_number", [True, 1.5, 0, -1])
+def test_record_positions_are_positive_integers(row_number) -> None:
+    with pytest.raises(ValueError, match="positive integer"):
+        Record("export.csv", row_number, {"id": "A"})
+
+
+def test_dataset_retains_its_input_snapshot_after_caller_mutation() -> None:
+    headers = ["id", "amount"]
+    records = [Record("left", 2, {"id": "A", "amount": "10"})]
+    left = Dataset("left", headers, records)
+    headers.append("accidental")
+    records.clear()
+    right = dataset("right", ("id", "amount"), [{"id": "A", "amount": "10"}])
+
+    result = reconcile(left, right, ReconciliationConfig(key_fields=("id",)))
+
+    assert result.is_clean
+    assert result.matched_count == 1
+    assert left.headers == ("id", "amount")
+
+
+def test_dataset_rejects_non_record_items() -> None:
+    with pytest.raises(TypeError, match="Record instances"):
+        Dataset("left", ("id",), ({"id": "A"},))

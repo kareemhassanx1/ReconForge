@@ -19,8 +19,8 @@ class Record:
     values: Mapping[str, CellValue]
 
     def __post_init__(self) -> None:
-        if self.row_number < 1:
-            raise ValueError("record row numbers must be positive")
+        if type(self.row_number) is not int or self.row_number < 1:
+            raise ValueError("record row numbers must be positive integers")
         object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
 
     def value(self, field: str) -> CellValue:
@@ -41,10 +41,17 @@ class Dataset:
     records: tuple[Record, ...]
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "headers", tuple(self.headers))
+        object.__setattr__(self, "records", tuple(self.records))
         if not self.headers:
             raise ValueError("a dataset requires at least one header")
         if len(self.headers) != len(set(self.headers)):
             raise ValueError("dataset headers must be unique")
+        if any(not isinstance(record, Record) for record in self.records):
+            raise TypeError("dataset records must be Record instances")
+        row_numbers = [record.row_number for record in self.records]
+        if len(row_numbers) != len(set(row_numbers)):
+            raise ValueError("dataset row numbers must be unique")
 
 
 @dataclass(frozen=True, slots=True)
