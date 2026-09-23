@@ -23,6 +23,8 @@ classifiers = [
 dev = [
   "pytest==8.3.5",
   "ruff==0.9.10",
+  "coverage==7.6.12",
+  "mypy==1.15.0",
 ]
 
 [project.scripts]
@@ -42,3 +44,16 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+files = ["src"]
+python_version = "3.11"
+warn_unused_ignores = true
+
+[tool.coverage.run]
+branch = true
+source = ["reconforge"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true

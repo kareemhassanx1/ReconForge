@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from json import JSONDecodeError
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from reconforge.batch import BatchResult
 from reconforge.errors import InputError
@@ -389,7 +389,7 @@ def _nonnegative_integer(value: object, location: str) -> int:
 
 def _source_text(value: object, label: str) -> str:
     _require_source(value, label)
-    return value
+    return cast(str, value)
 
 
 def _require_source(value: object, label: str) -> None:

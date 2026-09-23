@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
+from typing import cast
 
 from reconforge.model import CellValue, Dataset, ValidationViolation
 
@@ -106,8 +107,8 @@ class NumericRangeRule:
     def descriptor(self) -> str:
         left = "(" if self.minimum is None else ("[" if self.minimum_inclusive else "(")
         right = ")" if self.maximum is None else ("]" if self.maximum_inclusive else ")")
-        minimum = "-inf" if self.minimum is None else _format_decimal(self.minimum)
-        maximum = "+inf" if self.maximum is None else _format_decimal(self.maximum)
+        minimum = "-inf" if self.minimum is None else _format_decimal(cast(Decimal, self.minimum))
+        maximum = "+inf" if self.maximum is None else _format_decimal(cast(Decimal, self.maximum))
         return f"numeric_range:{left}{minimum},{maximum}{right}"
 
     def check(self, value: CellValue) -> str | None:
@@ -120,13 +121,13 @@ class NumericRangeRule:
         if not parsed.is_finite():
             return "expected a finite decimal number"
         if self.minimum is not None:
-            below_minimum = parsed < self.minimum or (
+            below_minimum = parsed < cast(Decimal, self.minimum) or (
                 parsed == self.minimum and not self.minimum_inclusive
             )
             if below_minimum:
                 return f"expected a value within {self._display_range()}"
         if self.maximum is not None:
-            above_maximum = parsed > self.maximum or (
+            above_maximum = parsed > cast(Decimal, self.maximum) or (
                 parsed == self.maximum and not self.maximum_inclusive
             )
             if above_maximum:

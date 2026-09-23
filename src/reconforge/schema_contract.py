@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from types import MappingProxyType
+from typing import cast
 
 from reconforge.model import CellValue, Dataset, Record
 from reconforge.profiling import ValueKind, classify_value
@@ -154,13 +155,19 @@ class FieldContract:
                     f"allowed value {value!r} is longer than max_length {self.max_length}"
                 )
             parsed = _finite_decimal(value)
-            if self.minimum is not None and (parsed is None or parsed < self.minimum):
+            if self.minimum is not None and (
+                parsed is None or parsed < cast(Decimal, self.minimum)
+            ):
                 raise ValueError(
-                    f"allowed value {value!r} is below minimum {format_decimal(self.minimum)}"
+                    f"allowed value {value!r} is below minimum "
+                    f"{format_decimal(cast(Decimal, self.minimum))}"
                 )
-            if self.maximum is not None and (parsed is None or parsed > self.maximum):
+            if self.maximum is not None and (
+                parsed is None or parsed > cast(Decimal, self.maximum)
+            ):
                 raise ValueError(
-                    f"allowed value {value!r} is above maximum {format_decimal(self.maximum)}"
+                    f"allowed value {value!r} is above maximum "
+                    f"{format_decimal(cast(Decimal, self.maximum))}"
                 )
 
 
@@ -462,15 +469,17 @@ def _value_violations(
 
     parsed = _finite_decimal(value)
     if parsed is not None:
-        if contract.minimum is not None and parsed < contract.minimum:
+        if contract.minimum is not None and parsed < cast(Decimal, contract.minimum):
             add(
                 ContractViolationCode.VALUE_BELOW_MINIMUM,
-                f"value is below inclusive minimum {format_decimal(contract.minimum)}",
+                "value is below inclusive minimum "
+                f"{format_decimal(cast(Decimal, contract.minimum))}",
             )
-        if contract.maximum is not None and parsed > contract.maximum:
+        if contract.maximum is not None and parsed > cast(Decimal, contract.maximum):
             add(
                 ContractViolationCode.VALUE_ABOVE_MAXIMUM,
-                f"value exceeds inclusive maximum {format_decimal(contract.maximum)}",
+                "value exceeds inclusive maximum "
+                f"{format_decimal(cast(Decimal, contract.maximum))}",
             )
     return violations
 

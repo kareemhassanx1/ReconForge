@@ -56,8 +56,11 @@ class DatasetReadOptions:
 class DatasetReader(Protocol):
     """Contract implemented by every built-in dataset reader."""
 
-    format: DatasetFormat
-    extensions: tuple[str, ...]
+    @property
+    def format(self) -> DatasetFormat: ...
+
+    @property
+    def extensions(self) -> tuple[str, ...]: ...
 
     def read(self, path: Path, options: DatasetReadOptions) -> Dataset:
         """Read one path into the shared immutable dataset model."""

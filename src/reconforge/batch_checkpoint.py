@@ -216,7 +216,7 @@ def _configuration_model(config: ReconciliationConfig) -> dict[str, object]:
         "ignore_fields": list(config.ignore_fields),
         "case_sensitive_keys": config.case_sensitive_keys,
         "field_normalizers": {
-            name: normalizer.kind.value
+            name: str(normalizer.kind)
             for name, normalizer in sorted(config.field_normalizers.items())
         },
         "comparison_policies": {
@@ -231,7 +231,7 @@ def _configuration_model(config: ReconciliationConfig) -> dict[str, object]:
 
 def _read_options_model(options: DatasetReadOptions) -> dict[str, object]:
     return {
-        "format": None if options.format is None else options.format.value,
+        "format": None if options.format is None else str(options.format),
         "encoding": options.encoding,
         "delimiter": options.delimiter,
         "trim_headers": options.trim_headers,

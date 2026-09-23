@@ -12,7 +12,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from reconforge.errors import InputError
 from reconforge.json_safety import JsonNestingTooDeepError, validate_json_nesting
@@ -62,7 +62,7 @@ class ValueKind(StrEnum):
     TEXT = "text"
 
 
-_KIND_ORDER = tuple(ValueKind)
+_KIND_ORDER: tuple[ValueKind, ...] = tuple(ValueKind)
 
 
 @dataclass(frozen=True, slots=True)
@@ -642,7 +642,8 @@ def _validate_optional_range(
 def _canonical_decimal(value: Decimal) -> str:
     if value.is_zero():
         return "0"
-    sign, raw_digits, exponent = value.as_tuple()
+    sign, raw_digits, raw_exponent = value.as_tuple()
+    exponent = cast(int, raw_exponent)
     digits = list(raw_digits)
     while len(digits) > 1 and digits[-1] == 0:
         digits.pop()

@@ -36,7 +36,7 @@ class ReconciliationRun:
             raise ValueError("started_at must not precede scheduled_at")
         if self.finished_at and not self.started_at:
             raise ValueError("finished_at requires started_at")
-        if self.finished_at and self.finished_at < self.started_at:
+        if self.finished_at and self.started_at and self.finished_at < self.started_at:
             raise ValueError("finished_at must not precede started_at")
         if self.records_compared < 0 or self.exceptions_found < 0:
             raise ValueError("run counts must not be negative")

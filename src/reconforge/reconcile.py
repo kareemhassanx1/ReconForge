@@ -224,7 +224,7 @@ def reconcile(
         ignored_fields=config.ignore_fields,
         case_sensitive_keys=config.case_sensitive_keys,
         field_normalizers=tuple(
-            (name, normalizer.kind.value) for name, normalizer in sorted(normalizers.items())
+            (name, str(normalizer.kind)) for name, normalizer in sorted(normalizers.items())
         ),
         comparison_policies=tuple(
             (name, policy.descriptor) for name, policy in sorted(policies.items())

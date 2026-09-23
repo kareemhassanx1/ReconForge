@@ -148,7 +148,7 @@ def normalize_dataset_fields(
                         row_number=record.row_number,
                         field=field,
                         value=value,
-                        kind=normalizer.kind,
+                        kind=NormalizerKind(normalizer.kind),
                         reason=str(exc),
                     )
                 )

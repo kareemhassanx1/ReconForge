@@ -6,7 +6,7 @@ import json
 from collections.abc import Mapping
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from reconforge.atomic_io import atomic_write_text
 from reconforge.errors import ConfigurationError, InputError
@@ -148,8 +148,12 @@ def _field_to_dict(contract: FieldContract) -> dict[str, Any]:
         "pattern": contract.pattern,
         "min_length": contract.min_length,
         "max_length": contract.max_length,
-        "minimum": None if contract.minimum is None else format_decimal(contract.minimum),
-        "maximum": None if contract.maximum is None else format_decimal(contract.maximum),
+        "minimum": None
+        if contract.minimum is None
+        else format_decimal(cast(Decimal, contract.minimum)),
+        "maximum": None
+        if contract.maximum is None
+        else format_decimal(cast(Decimal, contract.maximum)),
     }
 
 

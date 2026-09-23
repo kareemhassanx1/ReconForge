@@ -516,17 +516,17 @@ def _validate_recorded_descriptors(
             parsed = FieldNormalizer.named(descriptor)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{location} is invalid: {exc}") from exc
-        if parsed.kind.value != descriptor:
-            raise ValueError(f"{location} must use canonical descriptor {parsed.kind.value!r}")
+        if str(parsed.kind) != descriptor:
+            raise ValueError(f"{location} must use canonical descriptor {str(parsed.kind)!r}")
 
     for field, descriptor in policies.items():
         location = f"report.configuration.comparison_policies[{field!r}]"
         try:
-            parsed = _parse_policy_descriptor(descriptor)
+            policy = _parse_policy_descriptor(descriptor)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{location} is invalid: {exc}") from exc
-        if parsed.descriptor != descriptor:
-            raise ValueError(f"{location} must use canonical descriptor {parsed.descriptor!r}")
+        if policy.descriptor != descriptor:
+            raise ValueError(f"{location} must use canonical descriptor {policy.descriptor!r}")
 
     for field, descriptors in validation_rules:
         for index, descriptor in enumerate(descriptors):

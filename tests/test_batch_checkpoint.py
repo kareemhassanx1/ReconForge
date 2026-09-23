@@ -57,9 +57,7 @@ def test_checkpoint_rejects_results_from_other_comparison_settings(
     before = checkpoint.read_bytes() if checkpoint.exists() else None
 
     with pytest.raises(BatchCheckpointError, match="result configuration"):
-        reconcile_batch_resumable(
-            plan, config, checkpoint, pair_runner=lambda *_: foreign_result
-        )
+        reconcile_batch_resumable(plan, config, checkpoint, pair_runner=lambda *_: foreign_result)
 
     assert (checkpoint.read_bytes() if checkpoint.exists() else None) == before
 

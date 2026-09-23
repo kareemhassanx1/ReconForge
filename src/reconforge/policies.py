@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
+from typing import cast
 
 from reconforge.errors import InputError
 from reconforge.model import CellValue, Dataset
@@ -74,8 +75,8 @@ class ComparisonPolicy:
         """Return the stable public representation recorded in reports."""
 
         if self.kind is ComparisonPolicyKind.DECIMAL:
-            return f"decimal:tolerance={_format_decimal(self.tolerance)}"
-        return self.kind.value
+            return f"decimal:tolerance={_format_decimal(cast(Decimal, self.tolerance))}"
+        return str(self.kind)
 
     def prepare(self, value: CellValue) -> PreparedValue:
         """Convert one source value to the form used by this policy."""
@@ -98,7 +99,7 @@ class ComparisonPolicy:
         if self.kind is ComparisonPolicyKind.DECIMAL:
             if not isinstance(left, Decimal) or not isinstance(right, Decimal):
                 raise TypeError("decimal comparison requires prepared decimal values")
-            return abs(left - right) <= self.tolerance
+            return abs(left - right) <= cast(Decimal, self.tolerance)
         return left == right
 
 

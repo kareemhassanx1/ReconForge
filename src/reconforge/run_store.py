@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from json import JSONDecodeError
 from pathlib import Path
 from types import MappingProxyType
+from typing import cast
 
 from reconforge.errors import RunNotFoundError, RunStoreError
 
@@ -153,7 +154,7 @@ class RunStore:
                     """,
                     (timestamp, command, status, summary_json, metadata_json),
                 )
-                run_id = int(cursor.lastrowid)
+                run_id = int(cast(int, cursor.lastrowid))
                 connection.executemany(
                     """
                     INSERT INTO run_inputs (run_id, position, side, pair_name, source)
