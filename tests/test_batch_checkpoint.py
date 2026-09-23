@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -15,9 +16,64 @@ from reconforge.batch_checkpoint import (
 )
 from reconforge.cli import main
 from reconforge.errors import BatchCheckpointError
+from reconforge.normalization import FieldNormalizer
+from reconforge.policies import ComparisonPolicy
 from reconforge.readers import DatasetReadOptions, read_dataset
 from reconforge.reconcile import ReconciliationConfig, reconcile
 from reconforge.report import result_from_dict, result_to_dict
+from reconforge.validation import RequiredRule
+
+
+@pytest.mark.parametrize(
+    "changed_settings",
+    [
+        {"key_fields": ("value",)},
+        {"compare_fields": ()},
+        {"ignore_fields": ("memo",)},
+        {"case_sensitive_keys": False},
+        {"field_normalizers": {"value": FieldNormalizer.text()}},
+        {"comparison_policies": {"value": ComparisonPolicy.text()}},
+        {"validation_rules": {"value": (RequiredRule(),)}},
+    ],
+)
+@pytest.mark.parametrize("cached", [False, True])
+def test_checkpoint_rejects_results_from_other_comparison_settings(
+    tmp_path: Path, changed_settings, cached: bool
+) -> None:
+    pair = make_plan(tmp_path).pairs[0]
+    plan = BatchPlan((pair,))
+    config = ReconciliationConfig(key_fields=("id",), compare_fields=("value",))
+    # Changing the key also requires selecting a non-key comparison column.
+    if "key_fields" in changed_settings:
+        changed_settings = {**changed_settings, "compare_fields": ("id",)}
+    other = replace(config, **changed_settings)
+    foreign_result = reconcile(read_dataset(pair.left), read_dataset(pair.right), other)
+    checkpoint = tmp_path / "checkpoint.json"
+    if cached:
+        reconcile_batch_resumable(plan, config, checkpoint)
+        payload = json.loads(checkpoint.read_text(encoding="utf-8"))
+        payload["pairs"][pair.name]["result"] = result_to_dict(foreign_result)
+        write_checkpoint_document(checkpoint, payload)
+    before = checkpoint.read_bytes() if checkpoint.exists() else None
+
+    with pytest.raises(BatchCheckpointError, match="result configuration"):
+        reconcile_batch_resumable(
+            plan, config, checkpoint, pair_runner=lambda *_: foreign_result
+        )
+
+    assert (checkpoint.read_bytes() if checkpoint.exists() else None) == before
+
+
+def test_explicit_key_and_ignored_comparison_fields_resume_safely(tmp_path: Path) -> None:
+    plan = make_plan(tmp_path)
+    config = ReconciliationConfig(
+        key_fields=("id",), compare_fields=("id", "value"), ignore_fields=("value",)
+    )
+    checkpoint = tmp_path / "checkpoint.json"
+    first = reconcile_batch_resumable(plan, config, checkpoint)
+    second = reconcile_batch_resumable(plan, config, checkpoint)
+    assert second.result == first.result
+    assert second.reused_pairs == ("alpha", "beta")
 
 
 def write_file(root: Path, name: str, content: str) -> Path:

@@ -102,9 +102,11 @@ def reconcile_batch_resumable(
                     f"checkpoint {checkpoint_path} contains an invalid result "
                     f"for pair {pair.name!r}: {exc}"
                 ) from exc
+            _validate_result_configuration(result, config, pair.name)
             reused.append(pair.name)
         else:
             result = runner(pair, config, selected_left, selected_right)
+            _validate_result_configuration(result, config, pair.name)
             stable_fingerprint = pair_fingerprint(
                 pair,
                 config,
@@ -132,6 +134,35 @@ def reconcile_batch_resumable(
         reused_pairs=tuple(reused),
         executed_pairs=tuple(executed),
     )
+
+
+def _validate_result_configuration(
+    result: ReconciliationResult, config: ReconciliationConfig, name: str
+) -> None:
+    """Bind reusable results to the settings whose inputs were fingerprinted."""
+
+    try:
+        if not isinstance(result, ReconciliationResult):
+            raise TypeError("pair runner must return a ReconciliationResult")
+        report = result_to_dict(result)
+        result_from_dict(report)
+    except (TypeError, ValueError) as exc:
+        raise BatchCheckpointError(f"pair {name!r} contains an invalid result: {exc}") from exc
+    actual = report["configuration"]
+    expected = _configuration_model(config)
+    expected["ignored_fields"] = expected.pop("ignore_fields")
+    expected.pop("compare_fields")
+    if config.compare_fields is not None:
+        excluded = set(config.key_fields) | set(config.ignore_fields)
+        expected["compared_fields"] = [
+            field for field in config.compare_fields if field not in excluded
+        ]
+    inconsistent = [key for key, value in expected.items() if actual[key] != value]
+    if inconsistent:
+        raise BatchCheckpointError(
+            f"pair {name!r} result configuration does not match the checkpoint settings: "
+            + ", ".join(inconsistent)
+        )
 
 
 def pair_fingerprint(
